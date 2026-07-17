@@ -23,6 +23,16 @@ export interface Donation {
   pickupLat?: number; pickupLng?: number;
   items: DonationItem[];
   donorMessage?: string;            // Agent 5 output once resolved
+  /**
+   * Which item the dispatch machine is currently working, once approved.
+   *
+   * Items are dispatched strictly one at a time. Nothing technical requires
+   * that — event-driven, every item's first call could fire at once — but with
+   * LIVE_CALL_PHONE_OVERRIDE every call lands on one handset, so parallel
+   * dispatch would ring the demo phone three times simultaneously. Sequential
+   * also matches the behaviour verified on real calls.
+   */
+  itemCursor?: number;
 }
 export interface DonationItem {
   id: string; donationId: string;
@@ -37,6 +47,54 @@ export interface DonationItem {
   dialing?: { recipientId: string; recipientName: string; startedAt: string };
   matchedRecipientId?: string; resolutionReason?: string;
   attempts: CallAttempt[];
+  /**
+   * The ranked shortlist this item is working through, and how far in.
+   *
+   * The old blocking loop held these on the JS stack: `for (const candidate of
+   * candidates)` with an `await placeCall()` inside. Event-driven there is no
+   * stack to hold them — the webhook that decides "call the next one" is a
+   * different invocation entirely — so the shortlist is computed once at
+   * approve and persisted here.
+   *
+   * Ranked once, deliberately: re-ranking after each decline would let a
+   * recipient that already said no climb back to the top.
+   */
+  candidateRecipientIds?: string[];
+  candidateIndex?: number;
+}
+
+/**
+ * A call we placed and are waiting to hear about — the row that replaces
+ * vapi.ts's in-memory `pending` map.
+ *
+ * That map is the only reason the backend needed to be a single long-lived
+ * process: a promise parked in one instance's RAM can only be resolved by that
+ * instance. Persisted here, any invocation can handle any webhook.
+ *
+ * `handledAt` is the idempotency guard. VAPI provably sends more than one
+ * end-of-call-report per call (see the premature `call.in-progress.*` report),
+ * and without this a duplicate would drive the machine forward twice and
+ * double-dial the next pantry.
+ */
+export interface CallRecord {
+  callId: string;
+  donationId: string;
+  itemId: string;
+  recipientId: string;
+  candidateIndex: number;
+  placedAt: string;
+  handledAt?: string;
+  /**
+   * A coordinator picked this recipient by hand (§G.3), bypassing the ranking.
+   *
+   * The report is recorded identically, but the machine must NOT advance: a
+   * directed call has no shortlist to walk, and a decline leaves the item
+   * `pending` so it can be tried again — which is the whole point of a manual
+   * override. Without this flag a declined directed call would march the
+   * automatic dispatch on to the next-ranked pantry behind the coordinator's
+   * back.
+   */
+  directed?: boolean;
 }
 export interface Recipient {
   id: string; name: string; type: RecipientType;

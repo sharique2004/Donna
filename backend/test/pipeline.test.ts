@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type {
   Donation, DonationItem, ParsedDonation, Recipient, HistoryEvent,
-  AgentConfig, RankedRecipient, Weights,
+  AgentConfig, RankedRecipient, Weights, CallOutcome, ScoreBreakdown,
 } from '../src/core/types.js';
 import type { MemoryStore } from '../src/core/memory/store.js';
 import type { LlmClient } from '../src/core/agents/llm.js';
 import type { VoiceProvider } from '../src/core/voice/caller.js';
+import { makeCallStoreParts } from './support/callStore.js';
 
 // --- Mock the module-level collaborators (contract-first; other WPs not required) ---
 vi.mock('../src/core/agents/intake.js', () => ({
@@ -14,18 +15,27 @@ vi.mock('../src/core/agents/intake.js', () => ({
 vi.mock('../src/core/agents/callback.js', () => ({
   composeDonorMessage: vi.fn(),
 }));
-vi.mock('../src/core/voice/caller.js', () => ({
-  dispatchItem: vi.fn(),
-}));
 vi.mock('../src/core/scoring/engine.js', () => ({
   rankRecipients: vi.fn(),
 }));
 
 import { parseDonation } from '../src/core/agents/intake.js';
 import { composeDonorMessage } from '../src/core/agents/callback.js';
-import { dispatchItem } from '../src/core/voice/caller.js';
 import { rankRecipients } from '../src/core/scoring/engine.js';
 import { ingestDonation, dispatchDonation, rankItem } from '../src/core/pipeline.js';
+
+/**
+ * dispatchDonation no longer drives a `dispatchItem` loop it can be caught
+ * mocking — it hands off to the state machine, which places one call and returns
+ * (webhooks drive the rest). Under a simulator-shaped provider there are no
+ * webhooks, so the machine runs to completion synchronously and dispatchDonation's
+ * return IS the final state. That is the mode these tests use, and the mocked
+ * `rankRecipients` is what decides who each item's shortlist contains.
+ *
+ * The old `expect(dispatchItem).toHaveBeenCalledWith(...)` assertions are now
+ * made against the calls the provider actually receives, which is the same
+ * behaviour observed one layer further down.
+ */
 
 // --- Stub deps ---
 const DEFAULT_CONFIG: AgentConfig = {
@@ -53,6 +63,7 @@ function makeStore(seed: Donation[] = []): MemoryStore & { saved: Donation[] } {
   const history: HistoryEvent[] = [];
   const store: MemoryStore & { saved: Donation[] } = {
     saved,
+    ...makeCallStoreParts(),
     async init() {},
     async saveDonation(d) {
       donations.set(d.id, d);
@@ -79,19 +90,47 @@ function makeStore(seed: Donation[] = []): MemoryStore & { saved: Donation[] } {
 }
 
 const llm: LlmClient = { async complete() { return ''; } };
-const voice: VoiceProvider = {
-  async placeCall() {
-    return {
-      recipientId: 'r1', recipientName: 'A', outcome: 'accepted',
-      transcript: [], at: new Date().toISOString(), simulated: true,
-    };
-  },
-};
+
+/**
+ * A simulator-shaped provider (startCall + synthesizeReport ⇒ no webhook), so a
+ * dispatch completes inside dispatchDonation. `calls` records what was actually
+ * dialed, for the assertions the dispatchItem mock used to carry.
+ */
+function voiceFor(outcomes: Record<string, CallOutcome> = {}): VoiceProvider & {
+  calls: Array<{ itemId: string; recipientId: string }>;
+} {
+  const calls: Array<{ itemId: string; recipientId: string }> = [];
+  let n = 0;
+  return {
+    calls,
+    async startCall(_offer, recipient, item) {
+      calls.push({ itemId: item.id, recipientId: recipient.id });
+      return `sim_${++n}`;
+    },
+    async synthesizeReport(_offer, recipient) {
+      return { outcome: outcomes[recipient.id] ?? 'accepted', transcript: [] };
+    },
+  };
+}
+
+const voice: VoiceProvider = voiceFor();
+
+/** rankRecipients is mocked here, so the shortlist is whatever this returns. */
+function rankedAs(recipients: Recipient[]): RankedRecipient[] {
+  return recipients.map((recipient, idx) => ({
+    recipient,
+    score: {
+      recipientId: recipient.id,
+      feasibility: 1, coldchain: 1, capacity: 1, equity: 1, prefs: 1,
+      total: 1 - idx * 0.1,
+      driveTimeHours: 0.2, distanceMiles: 5,
+    } as ScoreBreakdown,
+  }));
+}
 
 beforeEach(() => {
   vi.mocked(parseDonation).mockReset();
   vi.mocked(composeDonorMessage).mockReset();
-  vi.mocked(dispatchItem).mockReset();
   vi.mocked(rankRecipients).mockReset();
 });
 
@@ -146,18 +185,23 @@ describe('dispatchDonation', () => {
       ],
     };
     const store = makeStore([donation]);
+    const recipients = await store.listRecipients();
 
-    vi.mocked(dispatchItem).mockImplementation(async (item: DonationItem) => {
-      if (item.id === 'i1') return { ...item, status: 'matched', matchedRecipientId: 'r1' };
-      return { ...item, status: 'unplaceable', resolutionReason: 'no feasible recipient' };
-    });
+    // i1 has a feasible recipient who accepts; i2 has none at all (every option
+    // hard-failed), which is the unplaceable-with-zero-calls path.
+    vi.mocked(rankRecipients).mockImplementation((item: DonationItem) =>
+      item.id === 'i1' ? rankedAs([recipients[0]]) : [],
+    );
     vi.mocked(composeDonorMessage).mockResolvedValue(
       'Placed strawberries at A. Bread could not be placed. Thank you!',
     );
+    const v = voiceFor({ r1: 'accepted' });
 
-    const result = await dispatchDonation('d1', { store, llm, voice, config: DEFAULT_CONFIG });
+    const result = await dispatchDonation('d1', { store, llm, voice: v, config: DEFAULT_CONFIG });
 
-    expect(vi.mocked(dispatchItem)).toHaveBeenCalledTimes(2);
+    // both items worked; only the placeable one was ever dialed
+    expect(vi.mocked(rankRecipients)).toHaveBeenCalledTimes(2);
+    expect(v.calls).toEqual([{ itemId: 'i1', recipientId: 'r1' }]);
     expect(result.status).toBe('resolved');
     expect(result.donorMessage).toBeTruthy();
     expect(result.donorMessage).toContain('Bread');
@@ -186,13 +230,48 @@ describe('dispatchDonation', () => {
       ],
     };
     const store = makeStore([donation]);
-    vi.mocked(dispatchItem).mockImplementation(async (item: DonationItem) => ({ ...item, status: 'matched', matchedRecipientId: 'r2' }));
+    const recipients = await store.listRecipients();
+    vi.mocked(rankRecipients).mockImplementation(() => rankedAs([recipients[1]]));
     vi.mocked(composeDonorMessage).mockResolvedValue('done');
+    const v = voiceFor({ r2: 'accepted' });
 
-    await dispatchDonation('d2', { store, llm, voice, config: DEFAULT_CONFIG });
+    await dispatchDonation('d2', { store, llm, voice: v, config: DEFAULT_CONFIG });
 
-    expect(vi.mocked(dispatchItem)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(dispatchItem).mock.calls[0][0].id).toBe('i4');
+    // i3 was already matched: never ranked, never called. Only i4 is worked.
+    expect(vi.mocked(rankRecipients)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(rankRecipients).mock.calls[0][0].id).toBe('i4');
+    expect(v.calls).toEqual([{ itemId: 'i4', recipientId: 'r2' }]);
+    expect(store.saved.at(-1)?.items.find((i) => i.id === 'i3')?.matchedRecipientId).toBe('r1');
+  });
+
+  it('returns after the FIRST call under a live provider — webhooks drive the rest', async () => {
+    // The blocking loop ran the whole donation inside this one await. Live, the
+    // outcome is not known when dispatchDonation returns: one call is in flight
+    // and the item is still pending until its report lands.
+    const donation: Donation = {
+      id: 'd4', sourceChannel: 'voice', sourceContact: '+1',
+      receivedAt: new Date().toISOString(), rawText: 'raw', status: 'scored',
+      items: [
+        { id: 'i5', donationId: 'd4', item: 'x', qtyLbs: 100, category: 'canned', hoursToSpoil: 2000, needsRefrigeration: false, status: 'pending', attempts: [] },
+        { id: 'i6', donationId: 'd4', item: 'y', qtyLbs: 100, category: 'canned', hoursToSpoil: 2000, needsRefrigeration: false, status: 'pending', attempts: [] },
+      ],
+    };
+    const store = makeStore([donation]);
+    const recipients = await store.listRecipients();
+    vi.mocked(rankRecipients).mockImplementation(() => rankedAs(recipients));
+
+    const calls: string[] = [];
+    const liveVoice: VoiceProvider = {           // no synthesizeReport ⇒ no webhook here
+      async startCall(_offer, r, item) { calls.push(`${item.id}:${r.id}`); return 'live_1'; },
+    };
+
+    const result = await dispatchDonation('d4', { store, llm, voice: liveVoice, config: DEFAULT_CONFIG });
+
+    expect(calls).toEqual(['i5:r1']);            // exactly one call, for the first item
+    expect(result.status).toBe('dispatching');   // NOT resolved — nothing reported yet
+    expect(result.items.every((i) => i.status === 'pending')).toBe(true);
+    expect(result.items[0].dialing).toMatchObject({ recipientId: 'r1' });
+    expect(vi.mocked(composeDonorMessage)).not.toHaveBeenCalled();
   });
 });
 

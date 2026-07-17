@@ -18,5 +18,9 @@
     "types": ["node"]
   },
   "include": ["src/**/*.ts", "test/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  // src/worker.ts is checked by tsconfig.worker.json instead: its Workers
+  // globals (D1Database, ScheduledEvent) need @cloudflare/workers-types,
+  // and loading those into a types:["node"] program declares fetch/crypto/
+  // Request twice.
+  "exclude": ["node_modules", "dist", "src/worker.ts"]
 }

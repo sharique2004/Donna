@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type {
   Channel, Donation, DonationItem, RankedRecipient, Weights, AgentConfig,
   CallAttempt, CallOutcome, HistoryEvent,
@@ -8,7 +7,9 @@ import type { LlmClient } from './agents/llm.js';
 import type { VoiceProvider } from './voice/caller.js';
 import { parseDonation } from './agents/intake.js';
 import { composeDonorMessage } from './agents/callback.js';
-import { dispatchItem } from './voice/caller.js';
+import {
+  startDispatch, onCallReport, type MachineDeps,
+} from './voice/dispatchMachine.js';
 import { draftOffer } from './agents/offer.js';
 import { memoryHint } from './agents/memoryHint.js';
 import { rankRecipients } from './scoring/engine.js';
@@ -27,9 +28,9 @@ export async function ingestDonation(
 ): Promise<Donation> {
   const parsed = await parseDonation(input.rawText, input.channel, deps.llm);
 
-  const donationId = randomUUID();
+  const donationId = crypto.randomUUID();
   const items: DonationItem[] = parsed.items.map((p) => ({
-    id: randomUUID(),
+    id: crypto.randomUUID(),
     donationId,
     item: p.item,
     qtyLbs: p.qtyLbs,
@@ -77,30 +78,55 @@ export async function finishDonationIfResolved(
   return true;
 }
 
-// all pending items → dispatchItem → Agent 5 composeDonorMessage → donorMessage → 'resolved'
+/**
+ * Build the state machine's dependencies from a PipelineDeps.
+ *
+ * This is the seam between "what the app has" (a VoiceProvider, an LlmClient)
+ * and "what the machine needs" (place a call, get an id; compose the callback).
+ * The machine deliberately knows nothing about VAPI or the simulator.
+ */
+export function machineDeps(deps: PipelineDeps): MachineDeps {
+  const voice = deps.voice;
+  return {
+    store: deps.store,
+    llm: deps.llm,
+    config: deps.config,
+    placeCall: (offer, recipient, item) => voice.startCall(offer, recipient, item),
+    ...(voice.synthesizeReport
+      ? { synthesizeReport: voice.synthesizeReport.bind(voice) }
+      : {}),
+    ...(voice.setHistory
+      ? {
+          refreshHistory: async () => {
+            voice.setHistory!(await deps.store.listHistory());
+          },
+        }
+      : {}),
+    composeDonorMessage: (donation) => composeDonorMessage(donation, deps.llm),
+  };
+}
+
+/**
+ * Kick off a dispatch. Returns as soon as the FIRST call is placed — the rest
+ * is driven by webhooks (dispatchMachine.onCallReport), not by this function.
+ *
+ * It used to run the entire donation to completion in one call, blocking for
+ * minutes of real telephony. That shape is what pinned the backend to a single
+ * always-on process; see dispatchMachine for the why.
+ *
+ * The returned Donation is therefore a SNAPSHOT taken after the first call goes
+ * out — items will still be pending. Read it back from the store to see where
+ * the dispatch got to. (Under VOICE_PROVIDER=sim there are no webhooks, so the
+ * machine runs to completion synchronously and the snapshot IS the final state.)
+ */
 export async function dispatchDonation(
   donationId: string,
   deps: PipelineDeps,
 ): Promise<Donation> {
   const donation = await deps.store.getDonation(donationId);
   if (!donation) throw new Error(`donation not found: ${donationId}`);
-
-  donation.status = 'dispatching';
-  await deps.store.saveDonation(donation);
-
-  for (let i = 0; i < donation.items.length; i++) {
-    if (donation.items[i].status === 'pending') {
-      donation.items[i] = await dispatchItem(
-        donation.items[i], donation, deps.store, deps.config, deps,
-      );
-      // Persist per item so a watching dashboard sees each one resolve as it
-      // happens; dispatchItem also saves around each individual call attempt.
-      await deps.store.saveDonation(donation);
-    }
-  }
-
-  await finishDonationIfResolved(donation, deps);
-  return donation;
+  await startDispatch(donation, machineDeps(deps));
+  return (await deps.store.getDonation(donationId)) ?? donation;
 }
 
 // ---------------------------------------------------------------------------
@@ -109,12 +135,20 @@ export async function dispatchDonation(
 // ---------------------------------------------------------------------------
 export type DirectedCallError =
   | 'item_not_found' | 'recipient_not_found' | 'item_not_pending';
+/**
+ * `attempt` is only present when the outcome is known by the time we return —
+ * i.e. a manual log (the human already made the call) or the simulator.
+ *
+ * A live directed call cannot include one: the call has been placed, but its
+ * outcome arrives later at the webhook. `callId` is returned instead so the
+ * caller can follow it; the attempt lands on the item once the report comes in.
+ */
 export type DirectedCallResult =
-  | { ok: true; item: DonationItem; attempt: CallAttempt }
+  | { ok: true; item: DonationItem; attempt?: CallAttempt; callId?: string }
   | { ok: false; error: DirectedCallError };
 
 function genId(): string {
-  return randomUUID();
+  return crypto.randomUUID();
 }
 
 function locateItem(
@@ -171,8 +205,17 @@ async function applyAttempt(
 
 /**
  * §G.3.1 — a directed agent call to one chosen recipient, skipping ranking.
- * draftOffer → voice.placeCall → applyAttempt. 404 (unknown item/recipient),
- * 409 (item not pending) surface as `{ ok: false, error }`.
+ *
+ * The call is placed and its CallRecord is flagged `directed`, which tells the
+ * state machine to record the report but NOT steer: no shortlist to walk, and a
+ * decline leaves the item pending so the coordinator can try someone else. That
+ * is the point of a manual override.
+ *
+ * Live, the outcome is not known when this returns — `callId` comes back and
+ * the attempt lands on the item at the webhook. Simulated, there is no webhook,
+ * so the decision is fed through the same path immediately and `attempt` is
+ * populated. 404 (unknown item/recipient), 409 (item not pending) surface as
+ * `{ ok: false, error }`.
  */
 export async function directedCall(
   itemId: string,
@@ -189,9 +232,46 @@ export async function directedCall(
   const offer = await draftOffer(
     item, donation, recipient, memoryHint(recipient, item), deps.llm,
   );
-  const attempt = await deps.voice.placeCall(offer, recipient, item);
-  await applyAttempt(item, donation, recipient.name, recipient.id, attempt, deps);
-  return { ok: true, item, attempt };
+  const md = machineDeps(deps);
+
+  // Publish "dialing X" before the call, exactly as the machine's placeNext
+  // does — this path bypasses it, so without this a coordinator's directed call
+  // rings with the dashboard showing nothing. onCallReport clears it.
+  item.dialing = {
+    recipientId: recipient.id,
+    recipientName: recipient.name,
+    startedAt: new Date().toISOString(),
+  };
+  await deps.store.saveDonation(donation);
+
+  let callId: string;
+  try {
+    callId = await deps.voice.startCall(offer, recipient, item);
+  } catch (e) {
+    item.dialing = undefined;
+    await deps.store.saveDonation(donation);
+    throw e;
+  }
+  await deps.store.saveCall({
+    callId,
+    donationId: donation.id,
+    itemId: item.id,
+    recipientId: recipient.id,
+    candidateIndex: -1,          // not on any shortlist
+    placedAt: new Date().toISOString(),
+    directed: true,
+  });
+
+  if (deps.voice.synthesizeReport) {
+    if (deps.voice.setHistory) deps.voice.setHistory(await deps.store.listHistory());
+    const r = await deps.voice.synthesizeReport(offer, recipient, item);
+    await onCallReport(callId, r.outcome, r.reason, r.transcript, md);
+    const fresh = await deps.store.getDonation(donation.id);
+    const freshItem = fresh?.items.find((it) => it.id === item.id) ?? item;
+    return { ok: true, item: freshItem, attempt: freshItem.attempts.at(-1), callId };
+  }
+
+  return { ok: true, item, callId };
 }
 
 export interface ManualCallInput {

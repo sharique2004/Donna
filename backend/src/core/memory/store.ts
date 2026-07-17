@@ -1,5 +1,5 @@
 import type {
-  Donation, Recipient, HistoryEvent, AgentConfig,
+  Donation, Recipient, HistoryEvent, AgentConfig, CallRecord,
 } from '../types.js';
 import { ENV } from '../../config.js';
 import { JsonStore } from './jsonStore.js';
@@ -23,6 +23,25 @@ export interface MemoryStore {
   getConfig(): Promise<AgentConfig>;
   setConfig(patch: Partial<AgentConfig>): Promise<AgentConfig>;
   reset(): Promise<void>;                      // restore seeds (demo reset)
+
+  // ---- in-flight calls (replaces vapi.ts's in-memory `pending` map) --------
+  /** Record a placed call so a later, unrelated invocation can resolve it. */
+  saveCall(call: CallRecord): Promise<void>;
+  getCall(callId: string): Promise<CallRecord | null>;
+  /**
+   * Claim a call for handling. Returns false if it was already handled — the
+   * idempotency guard against VAPI's duplicate end-of-call-reports, which would
+   * otherwise advance the machine twice and double-dial the next pantry.
+   */
+  claimCall(callId: string, at: string): Promise<boolean>;
+  /** Calls placed before `before` that never got a report — for the cron sweep. */
+  listUnhandledCallsBefore(before: string): Promise<CallRecord[]>;
+
+  // ---- live transcript (ephemeral display data for a call in progress) -----
+  appendLiveLine(callId: string, speaker: 'agent' | 'recipient', text: string): Promise<void>;
+  getLiveLines(callId: string): Promise<Array<{ speaker: 'agent' | 'recipient'; text: string }>>;
+  listLiveCalls(): Promise<Array<{ callId: string; lines: Array<{ speaker: 'agent' | 'recipient'; text: string }> }>>;
+  clearLiveLines(callId: string): Promise<void>;
 }
 
 /**

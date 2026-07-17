@@ -13,6 +13,7 @@ import type {
 import type { MemoryStore } from '../src/core/memory/store.js';
 import type { LlmClient as LlmClientType } from '../src/core/agents/llm.js';
 import { DEFAULT_AGENT_CONFIG } from '../src/config.js';
+import { makeCallStoreParts } from './support/callStore.js';
 
 // ---------------------------------------------------------------------------
 // In-memory MemoryStore stub (only the methods the manager agent exercises).
@@ -22,6 +23,7 @@ function makeStore(recipients: Recipient[]): MemoryStore {
   const map = new Map(recipients.map((r) => [r.id, { ...r }]));
   let config: AgentConfig = { ...DEFAULT_AGENT_CONFIG, weights: { ...DEFAULT_AGENT_CONFIG.weights } };
   return {
+    ...makeCallStoreParts(),
     async init() {},
     async saveDonation() {},
     async getDonation() { return null; },

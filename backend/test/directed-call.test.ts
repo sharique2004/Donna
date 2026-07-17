@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import type {
   Donation, DonationItem, Recipient, HistoryEvent, AgentConfig, OfferDraft,
-  CallAttempt,
+  CallAttempt, CallRecord,
 } from '../src/core/types.js';
 import type { MemoryStore } from '../src/core/memory/store.js';
 import type { LlmClient } from '../src/core/agents/llm.js';
 import type { VoiceProvider } from '../src/core/voice/caller.js';
 import { createServer } from '../src/server.js';
+import { makeCallStoreParts } from './support/callStore.js';
 
 // Integration tests for §G.3 directed / manual single-recipient calls. These run
 // the REAL pipeline (draftOffer + composeDonorMessage degrade to deterministic
@@ -48,6 +49,8 @@ interface Harness {
   history: HistoryEvent[];
   credits: Array<{ recipientId: string; lbs: number }>;
   donations: Map<string, Donation>;
+  /** The placed-call rows — the persisted replacement for vapi.ts's `pending` map. */
+  calls: Map<string, CallRecord>;
 }
 
 function makeStore(
@@ -58,7 +61,9 @@ function makeStore(
   for (const d of seedDonations) donations.set(d.id, d);
   const history: HistoryEvent[] = [];
   const credits: Array<{ recipientId: string; lbs: number }> = [];
+  const callParts = makeCallStoreParts();
   const store: MemoryStore = {
+    ...callParts,
     async init() {},
     async saveDonation(d) { donations.set(d.id, d); },
     async getDonation(id) { return donations.get(id) ?? null; },
@@ -77,19 +82,34 @@ function makeStore(
     async setConfig() { return CONFIG; },
     async reset() {},
   };
-  return { store, history, credits, donations };
+  return { store, history, credits, donations, calls: callParts.calls };
 }
 
 const stubLlm: LlmClient = { async complete() { return ''; } };
 
-function voiceReturning(outcome: CallAttempt['outcome'], reason?: string): VoiceProvider {
+/**
+ * A simulator-shaped provider: startCall dials, synthesizeReport answers. With no
+ * webhook the machine feeds the decision straight back through onCallReport, so a
+ * directed call still resolves inside the request and the route still returns
+ * {item, attempt}. (Live, `attempt` is absent and only `callId` comes back — see
+ * the live-directed test at the bottom of this file.)
+ */
+function voiceReturning(outcome: CallAttempt['outcome'], reason?: string): VoiceProvider & {
+  calls: Array<{ recipientId: string; itemId: string }>;
+} {
+  const calls: Array<{ recipientId: string; itemId: string }> = [];
+  let n = 0;
   return {
-    async placeCall(_offer: OfferDraft, r: Recipient): Promise<CallAttempt> {
+    calls,
+    async startCall(_offer: OfferDraft, r: Recipient, item: DonationItem): Promise<string> {
+      calls.push({ recipientId: r.id, itemId: item.id });
+      return `sim_directed_${++n}`;
+    },
+    async synthesizeReport(): Promise<Pick<CallAttempt, 'outcome' | 'reason' | 'transcript'>> {
       return {
-        recipientId: r.id, recipientName: r.name, outcome,
+        outcome,
         ...(reason ? { reason } : {}),
         transcript: [{ speaker: 'agent', text: 'hi' }, { speaker: 'recipient', text: 'ok' }],
-        at: new Date().toISOString(), simulated: true,
       };
     },
   };
@@ -178,6 +198,51 @@ describe('POST /api/items/:itemId/call/:recipientId — directed agent call', ()
     const d = h.donations.get('d1')!;
     expect(d.status).toBe('resolved');
     expect(d.donorMessage && d.donorMessage.length).toBeGreaterThan(0);
+  });
+
+  it('flags the CallRecord `directed` and never advances a shortlist behind the coordinator', async () => {
+    // The point of a manual override: a declined directed call leaves the item
+    // pending so a human can try someone else. Without the flag the machine would
+    // treat the decline as its own and march off to the next-ranked pantry.
+    const it1 = item('i1', 'd1');
+    const h = makeStore(
+      [donation('d1', [it1])],
+      [recipient('r1', 'Harbor Pantry'), recipient('r2', 'Bayview Pantry')],
+    );
+    const voice = voiceReturning('declined', 'no capacity');
+    const app = createServer({ store: h.store, llm: stubLlm, voice });
+
+    const res = await app.request('/api/items/i1/call/r1', { method: 'POST' });
+    expect(res.status).toBe(200);
+
+    // exactly the one call the coordinator asked for — r2 was never dialed
+    expect(voice.calls).toEqual([{ recipientId: 'r1', itemId: 'i1' }]);
+    const record = [...h.calls.values()][0];
+    expect(record).toMatchObject({ directed: true, itemId: 'i1', recipientId: 'r1' });
+    expect(record.candidateIndex).toBe(-1);   // not on any shortlist
+
+    const stored = h.donations.get('d1')!;
+    expect(stored.items[0].status).toBe('pending');
+    expect(stored.items[0].candidateRecipientIds).toBeUndefined();
+    expect(stored.status).not.toBe('resolved');
+  });
+
+  it('live (no synthesizeReport): returns callId with no attempt — the outcome lands at the webhook', async () => {
+    const h = makeStore([donation('d1', [item('i1', 'd1')])], [recipient('r1', 'Mission Pantry')]);
+    const liveVoice: VoiceProvider = { async startCall() { return 'live_directed_1'; } };
+    const app = createServer({ store: h.store, llm: stubLlm, voice: liveVoice });
+
+    const res = await app.request('/api/items/i1/call/r1', { method: 'POST' });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { item: DonationItem; attempt?: CallAttempt };
+
+    expect(body.attempt).toBeUndefined();
+    expect(body.item.status).toBe('pending');
+    expect(body.item.attempts).toHaveLength(0);
+    // …but the call is recorded, so the webhook can correlate it back
+    expect([...h.calls.values()][0]).toMatchObject({
+      callId: 'live_directed_1', itemId: 'i1', recipientId: 'r1', directed: true,
+    });
   });
 });
 

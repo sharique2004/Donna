@@ -1,0 +1,17 @@
+{
+  // Separate program from tsconfig.json on purpose: the Worker entry needs the
+  // Cloudflare globals (D1Database, ScheduledEvent) that the Node build must not
+  // see, and the Node entry (@hono/node-server, the JSON store) must not be
+  // compiled for Workers.
+  //
+  // BOTH type sets are loaded here, deliberately: nodejs_compat means process.env
+  // genuinely exists at runtime, and config.ts reads it at module scope — that is
+  // what let ENV stay a constant instead of being threaded through every caller.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "@cloudflare/workers-types"],
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "test", "src/main.ts"]
+}

@@ -1,0 +1,38 @@
+name = "donna-api"
+main = "src/worker.ts"
+
+# nodejs_compat: the app is written against Node-ish globals and, more
+# importantly, config.ts reads process.env at module scope. That works because
+# nodejs_compat_populate_process_env is on by default for compatibility dates
+# from 2025-04-01 — which is what let ENV and its ten readers survive the port
+# without threading `env` through every function.
+compatibility_date = "2025-06-01"
+compatibility_flags = ["nodejs_compat"]
+
+# The whole reason a rented box is no longer needed: dispatch state lives here,
+# not in a process's RAM, so any invocation can carry any call forward.
+[[d1_databases]]
+binding = "DB"
+database_name = "donna"
+database_id = "PLACEHOLDER_SET_BY_WRANGLER_D1_CREATE"
+
+# The report that never came. Timers do not survive a serverless invocation, so
+# this replaces the per-call setTimeout that used to live in vapi.ts: without it
+# a single dropped webhook strands a donation at `dispatching` forever.
+[triggers]
+crons = ["* * * * *"]
+
+[vars]
+# Non-secret config. Secrets (VAPI_API_KEY, GEMINI_API_KEY, VAPI_WEBHOOK_SECRET)
+# are set with `wrangler secret put` and appear on process.env alongside these.
+LLM_PROVIDER = "gemini"
+GEMINI_MODEL = "gemini-2.5-flash"
+DB_PROVIDER = "d1"
+VOICE_PROVIDER = "vapi"
+FOOD_BANK_NAME = ""
+# Set to the deployed Worker's own origin once it exists — VAPI posts call
+# reports back here, and an unset value means no call can ever resolve.
+PUBLIC_WEBHOOK_URL = ""
+# Redirects every outbound call to one handset. MUST stay set for demos: the
+# seeded pantry numbers are fake but not guaranteed unrouted.
+LIVE_CALL_PHONE_OVERRIDE = ""

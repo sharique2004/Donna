@@ -119,7 +119,26 @@ export class SimulatorVoice implements VoiceProvider {
     };
   }
 
-  async placeCall(
+  /**
+   * No real call is placed, so the id is synthetic — the machine still stores a
+   * CallRecord under it and still resolves it through onCallReport, so the
+   * simulated and live paths run identical code.
+   */
+  async startCall(): Promise<string> {
+    return `sim_${crypto.randomUUID()}`;
+  }
+
+  /** The outcome, decided immediately: no webhook is ever coming. */
+  async synthesizeReport(
+    offer: OfferDraft,
+    recipient: Recipient,
+    item: DonationItem,
+  ): Promise<Pick<CallAttempt, 'outcome' | 'reason' | 'transcript'>> {
+    const attempt = await this.buildAttempt(offer, recipient, item);
+    return { outcome: attempt.outcome, reason: attempt.reason, transcript: attempt.transcript };
+  }
+
+  private async buildAttempt(
     offer: OfferDraft,
     recipient: Recipient,
     item: DonationItem,

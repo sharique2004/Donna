@@ -1,5 +1,5 @@
 import type {
-  Donation, Recipient, HistoryEvent, AgentConfig,
+  Donation, Recipient, HistoryEvent, AgentConfig, CallRecord,
 } from '../types.js';
 import type { MemoryStore } from './store.js';
 import { ENV } from '../../config.js';
@@ -218,6 +218,59 @@ export class InsforgeStore implements MemoryStore {
     for (const r of makeSeedRecipients()) await this.post('recipients', toRecipientRow(r));
     for (const e of makeSeedHistory()) await this.post('history_events', toHistoryRow(e));
     await this.setConfig({ ...DEFAULT_AGENT_CONFIG });
+  }
+
+  // ---- in-flight calls & live transcript (NOT IMPLEMENTED) -----------------
+  //
+  // PRD §11: this store is inert — the InsForge AI gateway 404s, the calls /
+  // live_lines schema was never applied, and nothing selects DB_PROVIDER=insforge.
+  // Rather than write an unexercised implementation against tables that do not
+  // exist (which would silently drop dispatch state), these throw. Anyone who does
+  // select this store gets an honest, named failure instead of lost calls.
+
+  private notImplemented(method: string): never {
+    throw new Error(
+      `InsforgeStore.${method} is not implemented: the InsForge backend has no calls/`
+      + 'live_lines schema (PRD §11). Use DB_PROVIDER=json or the D1 store instead.',
+    );
+  }
+
+  async saveCall(_call: CallRecord): Promise<void> {
+    this.notImplemented('saveCall');
+  }
+
+  async getCall(_callId: string): Promise<CallRecord | null> {
+    this.notImplemented('getCall');
+  }
+
+  async claimCall(_callId: string, _at: string): Promise<boolean> {
+    this.notImplemented('claimCall');
+  }
+
+  async listUnhandledCallsBefore(_before: string): Promise<CallRecord[]> {
+    this.notImplemented('listUnhandledCallsBefore');
+  }
+
+  async appendLiveLine(
+    _callId: string, _speaker: 'agent' | 'recipient', _text: string,
+  ): Promise<void> {
+    this.notImplemented('appendLiveLine');
+  }
+
+  async getLiveLines(
+    _callId: string,
+  ): Promise<Array<{ speaker: 'agent' | 'recipient'; text: string }>> {
+    this.notImplemented('getLiveLines');
+  }
+
+  async listLiveCalls(): Promise<Array<{
+    callId: string; lines: Array<{ speaker: 'agent' | 'recipient'; text: string }>;
+  }>> {
+    this.notImplemented('listLiveCalls');
+  }
+
+  async clearLiveLines(_callId: string): Promise<void> {
+    this.notImplemented('clearLiveLines');
   }
 }
 

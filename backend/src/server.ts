@@ -1,17 +1,15 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { serve } from '@hono/node-server';
-import { pathToFileURL } from 'node:url';
 import { ENV } from './config.js';
 import type {
   Donation, DonationItem, RankedRecipient, Weights, AgentConfig,
 } from './core/types.js';
-import { createStore, type MemoryStore } from './core/memory/store.js';
-import { createLlm, type LlmClient } from './core/agents/llm.js';
+import type { MemoryStore } from './core/memory/store.js';
+import type { LlmClient } from './core/agents/llm.js';
 import { LlmMock } from './core/agents/llmMock.js';
-import { createVoice, type VoiceProvider } from './core/voice/caller.js';
+import type { VoiceProvider } from './core/voice/caller.js';
 import {
-  ingestDonation, dispatchDonation, rankItem,
+  ingestDonation, dispatchDonation, rankItem, machineDeps,
   directedCall, manualCall,
   type PipelineDeps, type DirectedCallError, type ManualCallInput,
 } from './core/pipeline.js';
@@ -19,11 +17,9 @@ import type { CallOutcome } from './core/types.js';
 import { managerChat } from './core/agents/manager.js';
 import { explainRanking } from './core/scoring/explain.js';
 import { simulateAB } from './core/scoring/equity.js';
-import { parseWebhook, resolveCall } from './core/voice/vapi.js';
+import { parseWebhook } from './core/voice/vapi.js';
+import { onCallReport } from './core/voice/dispatchMachine.js';
 import { buildInboundAssistant, isInboundCall, transcriptToRawText } from './core/voice/inbound.js';
-import {
-  appendLiveTranscript, clearLiveTranscript, getLiveTranscript, listLiveCalls,
-} from './core/voice/liveTranscript.js';
 import { CANNED_SCENARIO } from './seed/scenarios.js';
 
 // ---------------------------------------------------------------------------
@@ -91,7 +87,7 @@ type Resolver = () => Promise<PipelineDeps>;
 // ---------------------------------------------------------------------------
 // Route wiring — shared by the real app and test servers.
 // ---------------------------------------------------------------------------
-function buildApp(resolve: Resolver): Hono {
+export function buildApp(resolve: Resolver): Hono {
   const app = new Hono();
 
   app.use(
@@ -327,14 +323,18 @@ function buildApp(resolve: Resolver): Hono {
   });
 
   // ---- live call feed (stage dashboard) -----------------------------------
-  // Who is on the phone right now, and what is being said. Buffered in memory
-  // and polled; empty between calls.
-  app.get('/api/live', (c) => {
-    return c.json({ calls: listLiveCalls() });
+  // Who is on the phone right now, and what is being said. Lives in the store
+  // rather than process memory: the webhook that writes a caption and the poll
+  // that reads it are different invocations, and on a serverless runtime they
+  // share nothing but the database.
+  app.get('/api/live', async (c) => {
+    const deps = await resolve();
+    return c.json({ calls: await deps.store.listLiveCalls() });
   });
 
-  app.get('/api/live/:callId', (c) => {
-    return c.json({ lines: getLiveTranscript(c.req.param('callId')) });
+  app.get('/api/live/:callId', async (c) => {
+    const deps = await resolve();
+    return c.json({ lines: await deps.store.getLiveLines(c.req.param('callId')) });
   });
 
   // §G.3.2 — human-logged manual call (recorded like an agent call, flagged manual).
@@ -511,10 +511,12 @@ function buildApp(resolve: Resolver): Hono {
   });
 
   // ---- VAPI webhook sink (live mode only) ---------------------------------
-  // This route is the far end of VapiVoice.placeCall: that call parks a promise
-  // in vapi.ts's `pending` map keyed by callId, and only resolveCall() here can
-  // complete it. Without this wiring every live call burns its 90s timeout and
-  // reports no_answer no matter what the recipient said.
+  // The engine room. Every outbound call's outcome arrives here, and this route
+  // is what drives the dispatch forward: look the call up in the store, record
+  // what happened, then let the state machine decide whether to mark the item
+  // matched or dial the next pantry. Nothing is held in memory between the call
+  // being placed and this arriving — which is exactly why the backend no longer
+  // needs to be a single process that never restarts.
   app.post('/api/vapi/webhook', async (c) => {
     if (ENV.voiceProvider !== 'vapi') {
       return c.json({ ok: true, ignored: true });
@@ -550,10 +552,12 @@ function buildApp(resolve: Resolver): Hono {
       const role = String(rawMsg.role ?? '');
       const text = String(rawMsg.transcript ?? '');
       if (callId && text) {
-        appendLiveTranscript(callId, {
-          speaker: role === 'assistant' || role === 'bot' ? 'agent' : 'recipient',
+        const deps = await resolve();
+        await deps.store.appendLiveLine(
+          callId,
+          role === 'assistant' || role === 'bot' ? 'agent' : 'recipient',
           text,
-        });
+        );
       }
       return c.json({ ok: true });
     }
@@ -569,12 +573,18 @@ function buildApp(resolve: Resolver): Hono {
       return c.json({ ok: true, ignored: true, reason: errMsg(e) });
     }
 
-    // false ⇒ no pending call for this id: server restarted mid-call, a
-    // duplicate delivery, or a call placed by another process. Nothing a retry
-    // could fix, so acknowledge rather than 5xx.
-    const matched = resolveCall(normalized);
+    // Drive the state machine. It claims the call id first, so VAPI's duplicate
+    // reports are no-ops rather than a second dial. false ⇒ this report belongs
+    // to no call we placed (an inbound call, a wiped database, a duplicate).
+    const deps = await resolve();
+    const matched = await onCallReport(
+      normalized.callId,
+      normalized.outcome,
+      normalized.reason,
+      normalized.transcript,
+      machineDeps(deps),
+    );
     if (matched) {
-      clearLiveTranscript(normalized.callId);
       return c.json({ ok: true, matched, callId: normalized.callId });
     }
 
@@ -590,7 +600,6 @@ function buildApp(resolve: Resolver): Hono {
         if (!rawText) {
           return c.json({ ok: true, ignored: true, reason: 'inbound call had no transcript' });
         }
-        const deps = await resolve();
         const donation = await ingestDonation(
           {
             channel: 'voice',
@@ -601,7 +610,7 @@ function buildApp(resolve: Resolver): Hono {
         );
         donation.status = 'awaiting_triage';
         await deps.store.saveDonation(donation);
-        clearLiveTranscript(normalized.callId);
+        await deps.store.clearLiveLines(normalized.callId);
         return c.json({ ok: true, inbound: true, donationId: donation.id, items: donation.items.length });
       } catch (e) {
         return c.json({ ok: true, inbound: true, error: errMsg(e) });
@@ -627,41 +636,10 @@ export function createServer(deps: ServerDeps): Hono {
   return buildApp(resolve);
 }
 
-// ---------------------------------------------------------------------------
-// Default app: real singletons built lazily from factories, init() once.
-// ---------------------------------------------------------------------------
-let singletons: ServerDeps | undefined;
-let realInitP: Promise<void> | undefined;
-
-function realResolve(): Promise<PipelineDeps> {
-  if (!singletons) {
-    singletons = { store: createStore(), llm: createLlm(), voice: createVoice() };
-  }
-  const s = singletons;
-  if (!realInitP) realInitP = Promise.resolve(s.store.init());
-  return realInitP.then(async () => ({
-    ...s,
-    config: await s.store.getConfig(),
-  }));
-}
-
-export const app = buildApp(realResolve);
-
-const isMain =
-  process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(process.argv[1]).href;
-if (isMain) {
-  // Construct singletons + store.init() BEFORE serving (contract §9).
-  realResolve()
-    .then(() => {
-      serve({ fetch: app.fetch, port: ENV.port }, (info) => {
-        // eslint-disable-next-line no-console
-        console.log(`Donna backend listening on http://localhost:${info.port}`);
-      });
-    })
-    .catch((e) => {
-      // eslint-disable-next-line no-console
-      console.error('Failed to start Donna backend:', errMsg(e));
-      process.exit(1);
-    });
-}
+// The runtime entry points live elsewhere, deliberately:
+//   src/main.ts   — Node: @hono/node-server + createStore()/JsonStore
+//   src/worker.ts — Cloudflare: export default { fetch, scheduled } + D1Store
+//
+// This file must stay runtime-neutral. Importing @hono/node-server or the JSON
+// store here would drag node:fs and the Node HTTP server into the Workers
+// bundle, and neither exists there.

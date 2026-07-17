@@ -1,8 +1,38 @@
 import { describe, it, expect } from 'vitest';
 import { SimulatorVoice } from '../src/core/voice/simulator.js';
 import type {
-  DonationItem, OfferDraft, Recipient, HistoryEvent,
+  CallAttempt, DonationItem, OfferDraft, Recipient, HistoryEvent,
 } from '../src/core/types.js';
+
+/**
+ * `placeCall` split in two: `startCall` dials (and, having no real telephony,
+ * just mints a synthetic id) and `synthesizeReport` decides. The persona rules
+ * below are unchanged — they are what a recipient does on the phone, and none of
+ * them cared how the outcome got back to the machine.
+ *
+ * `simulated: true` is no longer stamped here; the machine derives it from the
+ * provider having a synthesizeReport at all (a report it answered itself is by
+ * definition simulated). That assertion moved to voice.dispatchMachine.test.ts,
+ * where the attempt is actually built; `answers` asserts the property this file
+ * can still see — that the simulator resolves its own calls, with no webhook.
+ */
+type Decision = Pick<CallAttempt, 'outcome' | 'reason' | 'transcript'>;
+
+/** Drive a call end-to-end the way the machine does: dial, then read the report. */
+async function answers(
+  sim: SimulatorVoice,
+  o: OfferDraft,
+  r: Recipient,
+  i: DonationItem,
+): Promise<Decision> {
+  // The simulator places no real call, so startCall ignores the offer entirely
+  // and just mints a synthetic id for the machine to file the CallRecord under.
+  const callId = await sim.startCall();
+  expect(callId).toBeTruthy();
+  // No webhook is ever coming for a simulated call — the provider answers itself.
+  expect(sim.synthesizeReport).toBeTypeOf('function');
+  return sim.synthesizeReport(o, r, i);
+}
 
 function recipient(over: Partial<Recipient> = {}): Recipient {
   return {
@@ -59,16 +89,17 @@ describe('SimulatorVoice persona rules (§7.2)', () => {
   it('declines when the category is in rejects', async () => {
     const sim = new SimulatorVoice();
     const rec = recipient({ rejects: ['fresh_produce'], accepts: [] });
-    const a = await sim.placeCall(offer, rec, item());
+    const a = await answers(sim, offer, rec, item());
     expect(a.outcome).toBe('declined');
     expect(a.reason).toBe("we don't take fresh produce");
-    expect(a.simulated).toBe(true);
+    // (simulated:true is now stamped by the machine, not the provider — asserted
+    // in voice.dispatchMachine.test.ts against the attempt it actually records.)
   });
 
   it('declines when quantity exceeds 1.5x weekly volume', async () => {
     const sim = new SimulatorVoice();
     const rec = recipient({ typicalWeeklyVolumeLbs: 300 });
-    const a = await sim.placeCall(offer, rec, item({ qtyLbs: 500 })); // ratio 1.67
+    const a = await answers(sim, offer, rec, item({ qtyLbs: 500 })); // ratio 1.67
     expect(a.outcome).toBe('declined');
     expect(a.reason).toBe("that's more than we can move this week");
   });
@@ -76,14 +107,14 @@ describe('SimulatorVoice persona rules (§7.2)', () => {
   it('accepts when quantity is exactly 1.5x (boundary, not > 1.5)', async () => {
     const sim = new SimulatorVoice();
     const rec = recipient({ typicalWeeklyVolumeLbs: 1000 });
-    const a = await sim.placeCall(offer, rec, item({ qtyLbs: 1500 })); // ratio == 1.5
+    const a = await answers(sim, offer, rec, item({ qtyLbs: 1500 })); // ratio == 1.5
     expect(a.outcome).toBe('accepted');
   });
 
   it('declines refrigerated item when recipient has no cold chain', async () => {
     const sim = new SimulatorVoice();
     const rec = recipient({ infrastructure: ['dry_storage'] });
-    const a = await sim.placeCall(offer, rec, item({ needsRefrigeration: true }));
+    const a = await answers(sim, offer, rec, item({ needsRefrigeration: true }));
     expect(a.outcome).toBe('declined');
     expect(a.reason).toBe('no cold storage available');
   });
@@ -94,7 +125,7 @@ describe('SimulatorVoice persona rules (§7.2)', () => {
       infrastructure: ['dry_storage'],
       accepts: ['canned'],
     });
-    const a = await sim.placeCall(offer, rec, item({
+    const a = await answers(sim, offer, rec, item({
       item: 'black beans',
       category: 'canned',
       needsRefrigeration: false,
@@ -110,7 +141,7 @@ describe('SimulatorVoice persona rules (§7.2)', () => {
       at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
     });
     const sim = new SimulatorVoice([recent]);
-    const a = await sim.placeCall(offer, recipient(), item());
+    const a = await answers(sim, offer, recipient(), item());
     expect(a.outcome).toBe('declined');
     expect(a.reason).toBe("we're still overstocked on fresh produce");
   });
@@ -122,7 +153,7 @@ describe('SimulatorVoice persona rules (§7.2)', () => {
       at: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(),
     });
     const sim = new SimulatorVoice([old]);
-    const a = await sim.placeCall(offer, recipient(), item());
+    const a = await answers(sim, offer, recipient(), item());
     expect(a.outcome).toBe('accepted');
   });
 
@@ -133,13 +164,13 @@ describe('SimulatorVoice persona rules (§7.2)', () => {
       at: new Date().toISOString(),
     });
     const sim = new SimulatorVoice([recent]);
-    const a = await sim.placeCall(offer, recipient(), item()); // fresh_produce
+    const a = await answers(sim, offer, recipient(), item()); // fresh_produce
     expect(a.outcome).toBe('accepted');
   });
 
   it('accepts the happy path and references the offer script + infrastructure', async () => {
     const sim = new SimulatorVoice();
-    const a = await sim.placeCall(offer, recipient(), item());
+    const a = await answers(sim, offer, recipient(), item());
     expect(a.outcome).toBe('accepted');
     expect(a.reason).toBeUndefined();
     // 4–6 line transcript, first line is the agent's offer script.
@@ -153,7 +184,7 @@ describe('SimulatorVoice persona rules (§7.2)', () => {
   it('setHistory updates the 7-day memory used by the next call', async () => {
     const sim = new SimulatorVoice();
     // first call: no memory ⇒ accept
-    expect((await sim.placeCall(offer, recipient(), item())).outcome).toBe('accepted');
+    expect((await answers(sim, offer, recipient(), item())).outcome).toBe('accepted');
     sim.setHistory([
       historyEvent({
         outcome: 'declined',
@@ -161,6 +192,6 @@ describe('SimulatorVoice persona rules (§7.2)', () => {
         at: new Date().toISOString(),
       }),
     ]);
-    expect((await sim.placeCall(offer, recipient(), item())).outcome).toBe('declined');
+    expect((await answers(sim, offer, recipient(), item())).outcome).toBe('declined');
   });
 });

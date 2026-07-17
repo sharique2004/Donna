@@ -1,6 +1,23 @@
 node_modules/
 dist/
+
+# Every .env variant, not just the exact name. A copy called "backend/.env 2"
+# (macOS/editor leftovers, or moving the file aside for a test) is NOT matched by
+# a bare `.env` rule, and it holds the same live credentials. Caught one at the
+# staging step; the rule is wider now so it cannot depend on catching it again.
 .env
+.env.*
+*.env
+.env?*
+!.env.example
+
+# wrangler's own local secrets file — same content, different name.
+.dev.vars
+.dev.vars.*
+
+# Local wrangler state: miniflare's D1 sqlite files. Machine-local, and they
+# contain whatever the last local run wrote.
+.wrangler/
 backend/data/db.json
 
 # misc

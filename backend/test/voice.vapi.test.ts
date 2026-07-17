@@ -122,20 +122,18 @@ describe('VapiVoice keyless behavior', () => {
       vi.unstubAllGlobals();
     });
 
-    /** Stub /call, capture the posted body, and abandon the pending promise. */
+    /** Stub /call and capture the number that got dialed. */
     async function capturePostedNumber(): Promise<string> {
       let posted: string | undefined;
       vi.stubGlobal('fetch', async (_url: string, init: { body: string }) => {
         posted = JSON.parse(init.body).customer.number;
         return { ok: true, json: async () => ({ id: 'call_stub' }) } as unknown as Response;
       });
-      const v = new VapiVoice();
-      // placeCall stays pending until the webhook resolves it, so race the
-      // POST against a tick — we only care about what got dialed.
-      await Promise.race([
-        v.placeCall(OFFER, RECIPIENT, ITEM),
-        new Promise((r) => setTimeout(r, 0)),
-      ]);
+      // startCall settles as soon as VAPI accepts the call for dialling — the old
+      // placeCall parked until a webhook resolved it, which is why this used to
+      // have to race a tick and abandon the promise.
+      const callId = await new VapiVoice().startCall(OFFER, RECIPIENT, ITEM);
+      expect(callId).toBe('call_stub');
       return posted!;
     }
 
@@ -154,11 +152,11 @@ describe('VapiVoice keyless behavior', () => {
     });
   });
 
-  it('placeCall rejects clearly when keys are absent', async () => {
+  it('startCall rejects clearly when keys are absent', async () => {
     // Zero env vars in the test process ⇒ placing a real call must error, not hang.
     const v = new VapiVoice();
     await expect(
-      v.placeCall(
+      v.startCall(
         { itemId: 'i', recipientId: 'r', script: 's', summary: 'x' },
         {
           id: 'r', name: 'R', type: 'pantry', leadContact: 'L', phone: '+14155550100',

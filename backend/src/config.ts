@@ -1,4 +1,3 @@
-import { fileURLToPath } from 'node:url';
 import type { Weights, AgentConfig } from './core/types.js';
 
 export const DEFAULT_WEIGHTS: Weights = {
@@ -10,7 +9,10 @@ export const DEFAULT_WEIGHTS: Weights = {
 };
 
 export type LlmProvider = 'mock' | 'anthropic' | 'insforge' | 'gemini';
-export type DbProvider = 'json' | 'insforge';
+// 'd1' is selected by the Worker entry constructing D1Store from its binding
+// rather than by createStore() — D1 arrives as env.DB, not process.env — but
+// it is named here so /api/health reports the store it is actually using.
+export type DbProvider = 'json' | 'insforge' | 'd1';
 export type VoiceProvider = 'sim' | 'vapi';
 
 export interface EnvConfig {
@@ -68,32 +70,16 @@ export interface EnvConfig {
   port: number;
 }
 
-// ---------------------------------------------------------------------------
-// §D.2 — load backend/.env at boot via Node's process.loadEnvFile (≥20.12),
-// with no new dependency. Real environment variables always win: any var that
-// was already present is restored after the file loads, so the file only fills
-// in vars that were not already set. An absent/unreadable file is fine — the
-// keyless mock default still rules. Skipped under the test runner so vitest
-// always sees the mock default regardless of a local .env.
-// ---------------------------------------------------------------------------
-function loadDotEnv(): void {
-  if (process.env.VITEST || process.env.NODE_ENV === 'test') return;
-  const loader = (process as unknown as { loadEnvFile?: (path?: string) => void }).loadEnvFile;
-  if (typeof loader !== 'function') return;
-  try {
-    const envPath = fileURLToPath(new URL('../.env', import.meta.url));
-    const before: Record<string, string | undefined> = {};
-    for (const k of Object.keys(process.env)) before[k] = process.env[k];
-    loader(envPath);
-    for (const k of Object.keys(before)) {
-      const prev = before[k];
-      if (prev !== undefined) process.env[k] = prev; // real env wins
-    }
-  } catch {
-    // No .env (or unreadable) — keyless mock default is intended here.
-  }
-}
-loadDotEnv();
+// .env loading lives in src/loadEnvNode.ts and is imported ONLY by the Node
+// entry (src/main.ts). It must not happen on Workers, where config comes from
+// wrangler vars/secrets — and runtime detection proved unreliable, because
+// `wrangler dev --local` polyfills process.loadEnvFile and has filesystem
+// access, so it read .env and quietly ran local dev on the JSON store while the
+// deployed Worker used D1.
+//
+// Everything below works unchanged on both runtimes: process.env is populated
+// from wrangler vars/secrets under nodejs_compat, which is what lets ENV stay a
+// module-scoped constant that ten other files read directly.
 
 function pick<T extends string>(value: string | undefined, allowed: readonly T[], fallback: T): T {
   const v = (value ?? '').trim();
@@ -109,7 +95,7 @@ export function loadEnv(env: NodeJS.ProcessEnv = process.env): EnvConfig {
     insforgeAiModel: env.INSFORGE_AI_MODEL ?? 'anthropic/claude-sonnet-4.5',
     geminiApiKey: env.GEMINI_API_KEY ?? '',
     geminiModel: env.GEMINI_MODEL ?? 'gemini-2.5-flash',
-    dbProvider: pick(env.DB_PROVIDER, ['json', 'insforge'] as const, 'json'),
+    dbProvider: pick(env.DB_PROVIDER, ['json', 'insforge', 'd1'] as const, 'json'),
     insforgeBaseUrl: env.INSFORGE_BASE_URL ?? '',
     insforgeApiKey: env.INSFORGE_API_KEY ?? '',
     voiceProvider: pick(env.VOICE_PROVIDER, ['sim', 'vapi'] as const, 'sim'),

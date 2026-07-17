@@ -6,6 +6,7 @@ import type {
 import type { MemoryStore } from '../src/core/memory/store.js';
 import type { LlmClient } from '../src/core/agents/llm.js';
 import type { VoiceProvider } from '../src/core/voice/caller.js';
+import { makeCallStoreParts } from './support/callStore.js';
 
 // --- module mocks (these modules are stubs during parallel Phase 2) ---------
 const ingestDonation = vi.fn();
@@ -66,6 +67,7 @@ const donation = (id: string, items: DonationItem[]): Donation => ({
 
 function makeStore(donations: Donation[] = []): MemoryStore {
   return {
+    ...makeCallStoreParts(),
     init: vi.fn(async () => {}),
     saveDonation: vi.fn(async () => {}),
     getDonation: vi.fn(async (id: string) => donations.find((d) => d.id === id) ?? null),
@@ -83,7 +85,8 @@ function makeStore(donations: Donation[] = []): MemoryStore {
 }
 
 const stubLlm: LlmClient = { complete: vi.fn(async () => '') };
-const stubVoice: VoiceProvider = { placeCall: vi.fn() as unknown as VoiceProvider['placeCall'] };
+// placeCall (awaits the whole call) → startCall (dials, returns the id).
+const stubVoice: VoiceProvider = { startCall: vi.fn(async () => 'call_stub') };
 
 function server(store: MemoryStore) {
   return createServer({ store, llm: stubLlm, voice: stubVoice });

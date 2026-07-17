@@ -15,8 +15,10 @@ import { ENV } from '../../config.js';
  *   - Webhook (server messages): { message: { type: 'end-of-call-report',
  *       endedReason, call: { id }, artifact: { transcript, messages } } }
  *
- * A placed call returns a Promise that stays pending until the matching
- * end-of-call-report webhook resolves it, or a 90s timeout fires ⇒ no_answer.
+ * startCall places the call and returns its id, nothing more. The outcome comes
+ * back at the webhook and is correlated through the persisted CallRecord — see
+ * dispatchMachine. This file holds no cross-request state, which is what lets
+ * the backend run on a serverless runtime at all.
  */
 
 const VAPI_BASE = 'https://api.vapi.ai';
@@ -47,19 +49,22 @@ export const IN_CALL_MODEL = {
 } as const;
 
 /**
- * Backstop for a report that never arrives at all (tunnel down, process
- * restarted mid-call, VAPI drops the webhook). It is NOT a conversation limit —
- * MAX_CALL_DURATION_S is. Deriving it from that ceiling plus a delivery buffer
- * keeps the two from drifting apart.
+ * How long after placing a call we give up waiting for its report.
  *
- * This was 90s flat, which is shorter than a real conversation: observed live
- * 2026-07-16, a recipient talked for ~100s and declined, the timer fired first
- * and recorded `no_answer`, and the genuine decline arrived to find nothing
- * pending. Two harms — the decline reason never reached memory (PRD §9 learns
- * from those), and dispatch dialed the next pantry while the first call was
- * still connected, offering the same 5000 lbs to two recipients at once.
+ * This used to be an in-process `setTimeout` racing the webhook. No timer
+ * survives a serverless invocation, so the backstop is now a cron sweep
+ * (dispatchMachine.sweepStaleCalls) over calls that were placed and never
+ * reported. Same purpose, different mechanism: a dropped webhook must never
+ * strand a donation at `dispatching` forever.
+ *
+ * Derived from the call's own ceiling plus a delivery buffer, so the report
+ * always beats the sweep. The old value was 90s flat — shorter than a real
+ * conversation. Observed live 2026-07-16: a recipient talked for ~100s and
+ * declined, the timer fired first and logged `no_answer` over a genuine
+ * decline (poisoning the memory PRD §9 learns from) and dialled the next
+ * pantry while the first was still connected.
  */
-const CALL_TIMEOUT_MS = (MAX_CALL_DURATION_S + 60) * 1000;
+export const CALL_REPORT_GRACE_MS = (MAX_CALL_DURATION_S + 60) * 1000;
 
 /** endedReason values that mean nobody picked up. */
 const NO_ANSWER_REASONS = new Set([
@@ -79,17 +84,6 @@ export interface NormalizedWebhook {
   reason?: string;
 }
 
-interface PendingCall {
-  offer: OfferDraft;
-  recipient: Recipient;
-  item: DonationItem;
-  resolve: (a: CallAttempt) => void;
-  timer: ReturnType<typeof setTimeout>;
-}
-
-/** callId → the awaiting dispatch promise. Module-scoped so the webhook route can reach it. */
-const pending = new Map<string, PendingCall>();
-
 /**
  * Where VAPI posts this call's end-of-call-report, and what it's allowed to post.
  *
@@ -97,12 +91,19 @@ const pending = new Map<string, PendingCall>();
  * plus `serverMessages: [...]` on the assistant. The 2024-10-13 changelog retired
  * the older top-level `serverUrl`/`serverUrlSecret` in favour of this block.
  *
- * `serverMessages` is deliberately narrowed to the one message we act on —
- * without it VAPI also streams status-update/transcript/speech-update chatter at
- * the route for every call.
+ * `serverMessages` asks for exactly the two messages we act on:
+ *   - end-of-call-report drives the dispatch machine (the outcome).
+ *   - transcript feeds the live captions on the stage dashboard.
+ *
+ * `transcript` used to be omitted here, back when nothing consumed it and the
+ * narrowing existed to stop status-update/speech-update chatter. Once live
+ * captions were built, that omission meant the dashboard could only ever show
+ * an INBOUND donor call — the outbound pantry call, which is the one on stage,
+ * stayed silent. inbound.ts had it right; this did not. Keep the two lists in
+ * step: anything server.ts handles must be requested by both assistants.
  *
  * Returns {} when PUBLIC_WEBHOOK_URL is unset, which leaves the call unable to
- * report back; placeCall warns about exactly that below.
+ * report back; startCall warns about exactly that below.
  */
 function serverBlock() {
   if (!ENV.publicWebhookUrl) return {};
@@ -112,7 +113,7 @@ function serverBlock() {
       timeoutSeconds: 20,
       ...(ENV.vapiWebhookSecret ? { secret: ENV.vapiWebhookSecret } : {}),
     },
-    serverMessages: ['end-of-call-report'],
+    serverMessages: ['end-of-call-report', 'transcript'],
   };
 }
 
@@ -160,22 +161,27 @@ function dialTarget(recipient: Recipient): string {
 }
 
 export class VapiVoice implements VoiceProvider {
-  async placeCall(
+  /**
+   * Place the call and return VAPI's call id. Returns as soon as the call is
+   * accepted for dialling — the outcome arrives later, at the webhook, and is
+   * correlated back through the persisted CallRecord.
+   */
+  async startCall(
     offer: OfferDraft,
     recipient: Recipient,
     item: DonationItem,
-  ): Promise<CallAttempt> {
+  ): Promise<string> {
     if (!ENV.vapiApiKey || !ENV.vapiPhoneNumberId) {
       throw new Error('VAPI_API_KEY and VAPI_PHONE_NUMBER_ID are required for VOICE_PROVIDER=vapi');
     }
     if (!ENV.publicWebhookUrl) {
       // Not fatal — the call still connects and a human still hears the offer —
-      // but nothing can report the outcome back, so this dispatch is guaranteed
-      // to burn the full 90s timeout and record no_answer whatever is said.
+      // but nothing can report the outcome back, so this item will sit at
+      // `dialing` until the cron sweep writes it off as no_answer.
       console.warn(
         '[vapi] PUBLIC_WEBHOOK_URL is unset: no server block on the assistant, so ' +
-          'no end-of-call-report can reach us. This call will time out after 90s ' +
-          'and resolve as no_answer regardless of the recipient\'s answer.',
+          'no end-of-call-report can reach us. This call cannot resolve on its own ' +
+          "and will be swept as no_answer regardless of the recipient's answer.",
       );
     }
 
@@ -199,51 +205,14 @@ export class VapiVoice implements VoiceProvider {
     const data = (await res.json()) as { id?: string };
     const callId = data.id;
     if (!callId) throw new Error('VAPI call response missing id');
-
-    // The promise is resolved by the end-of-call-report webhook (via resolveCall),
-    // or by the 90s timeout below ⇒ no_answer.
-    return new Promise<CallAttempt>((resolve) => {
-      const timer = setTimeout(() => {
-        pending.delete(callId);
-        resolve({
-          recipientId: recipient.id,
-          recipientName: recipient.name,
-          outcome: 'no_answer',
-          reason: 'no end-of-call report within 90s',
-          transcript: [{ speaker: 'agent', text: offer.script }],
-          at: new Date().toISOString(),
-          simulated: false,
-        });
-      }, CALL_TIMEOUT_MS);
-
-      pending.set(callId, { offer, recipient, item, resolve, timer });
-    });
+    return callId;
   }
 }
 
-/**
- * Called by the /api/vapi/webhook server route. Correlates the normalized
- * report to the pending placeCall promise and completes the same path
- * dispatchItem awaits. Returns true if a pending call was matched.
- */
-export function resolveCall(hook: NormalizedWebhook): boolean {
-  const entry = pending.get(hook.callId);
-  if (!entry) return false;
-  clearTimeout(entry.timer);
-  pending.delete(hook.callId);
-  entry.resolve({
-    recipientId: entry.recipient.id,
-    recipientName: entry.recipient.name,
-    outcome: hook.outcome,
-    reason: hook.reason,
-    transcript: hook.transcript.length
-      ? hook.transcript
-      : [{ speaker: 'agent', text: entry.offer.script }],
-    at: new Date().toISOString(),
-    simulated: false,
-  });
-  return true;
-}
+// resolveCall() and the `pending` map are gone. A webhook no longer resolves a
+// promise held in this process's memory — it looks the call up in the store and
+// drives the state machine (see dispatchMachine.onCallReport). That is what
+// lets any invocation, on any machine, carry a dispatch forward.
 
 /** Map a VAPI messages[] array ({role, message}) into our transcript shape. */
 function normalizeTranscript(
