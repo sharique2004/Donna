@@ -23,9 +23,9 @@ export default function App(): React.JSX.Element {
 
 function Shell() {
   const { mode, reset, busy, toast, detailOpen, appliedPatchCount } = useDonna();
-  // Boots into the Dispatch console (§I.1): the inbound/outbound ops view is the
-  // default face of the product; the Demo tab is opt-in.
-  const [view, setView] = useState<View>('dispatch');
+  // Boots into the Pitch deck: the deck opens the room, then we cross to the
+  // Dispatch console / Demo tab from the ribbon.
+  const [view, setView] = useState<View>('pitch');
   const [intakeOpen, setIntakeOpen] = useState(false);
   const [mgrOpen, setMgrOpen] = useState(false);
 
