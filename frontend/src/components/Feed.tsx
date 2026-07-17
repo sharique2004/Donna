@@ -1,19 +1,19 @@
 import React, { useMemo } from 'react';
 import { useDonna } from '../state';
-import type { Channel, Donation, DonationItem } from '../types';
+import type { Donation, DonationItem } from '../types';
 import { humanize, spoilCountdown } from '../theme';
+import { ChannelIcon, Snowflake } from '../icons';
 
 // §G.1 — Inbound is ITEM-CENTRIC: donations flattened to items, newest donation
-// first. Each card ≤2 lines with an UNMISSABLE procurement state (colored left
-// edge + dot): amber pending → green placed → RED unplaceable (red card tint).
-// Donation grouping survives only as a thin separator label.
+// first. Each card ≤2 lines with an UNMISSABLE procurement state (§H.2: a colored
+// 3px left rule + a small-caps status micro-label at line end): amber pending →
+// green placed → red unplaceable (≤4% red card tint). Donation grouping survives
+// only as a thin separator label.
 
-export const CHANNEL_ICON: Record<Channel, string> = {
-  voice: '☎',
-  sms: '💬',
-  email: '✉',
-  walk_in: '🚶',
-  web_form: '🌐',
+const STATE_LABEL: Record<ItemState, string> = {
+  pending: 'Pending',
+  placed: 'Placed',
+  unplaceable: 'No takers',
 };
 
 type ItemState = 'pending' | 'placed' | 'unplaceable';
@@ -53,7 +53,10 @@ export function Feed({ onNew }: { onNew: () => void }) {
             <div className="don-group" key={d.id}>
               <div className="don-sep">
                 <span className="don-donor">{d.donorName || 'Unknown donor'}</span>
-                <span className="don-meta">{CHANNEL_ICON[d.sourceChannel]} {fmtTime(d.receivedAt)}</span>
+                <span className="don-meta">
+                  <span className="ch-ico" title={humanize(d.sourceChannel)}><ChannelIcon channel={d.sourceChannel} size={13} /></span>
+                  {fmtTime(d.receivedAt)}
+                </span>
               </div>
               {d.items.map((it) => (
                 <ItemCard
@@ -82,14 +85,15 @@ function ItemCard({ d, it, recipientName, selected, onOpen }: {
   const state = itemState(it);
   const qty = Math.round(it.qtyLbs).toLocaleString();
 
-  // Line 2 changes with the procurement state (§G.1).
+  // Line 2 changes with the procurement state (§G.1). Status is a small-caps
+  // micro-label at line end (§H.2), the 3px left rule is the only color element.
   let line2: React.ReactNode;
   if (state === 'placed') {
-    line2 = <span className="ic-placed">→ {recipientName || 'placed'}</span>;
+    line2 = <span className="l2-text ic-placed">→ {recipientName || 'placed'}</span>;
   } else if (state === 'unplaceable') {
-    line2 = <span className="ic-dead">no takers — donor notified</span>;
+    line2 = <span className="l2-text ic-dead">no takers — donor notified</span>;
   } else {
-    line2 = <span className="ic-donor">{d.donorName || 'Unknown donor'}</span>;
+    line2 = <span className="l2-text ic-donor">{d.donorName || 'Unknown donor'}</span>;
   }
 
   return (
@@ -101,12 +105,17 @@ function ItemCard({ d, it, recipientName, selected, onOpen }: {
       <span className="icard-edge" />
       <span className="icard-body">
         <span className="icard-l1">
-          <span className={`sdot ${state === 'placed' ? 'ok' : state === 'unplaceable' ? 'bad' : 'warn'}`} />
           <span className="ic-name">{humanize(it.item)}</span>
           <span className="ic-qty">{qty} lb</span>
-          <span className="ic-spoil">{it.needsRefrigeration ? '❄ ' : ''}{spoilCountdown(d.receivedAt, it.hoursToSpoil)}</span>
+          <span className="ic-spoil">
+            {it.needsRefrigeration && <span className="snow" title="Refrigerated"><Snowflake size={12} /></span>}
+            {spoilCountdown(d.receivedAt, it.hoursToSpoil)}
+          </span>
         </span>
-        <span className="icard-l2">{line2}</span>
+        <span className="icard-l2">
+          {line2}
+          <span className={`status-tag ${state}`}>{STATE_LABEL[state]}</span>
+        </span>
       </span>
     </button>
   );

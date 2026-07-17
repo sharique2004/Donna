@@ -72,7 +72,7 @@ export interface CallAttempt {
   outcome: CallOutcome; reason?: string;
   transcript: Array<{ speaker: 'agent' | 'recipient'; text: string }>;
   at: string; simulated: boolean;
-  manual?: boolean;                 // §G.3 — human-logged intervention (renders 👤, not SIM)
+  manual?: boolean;                 // §G.3 — human-logged intervention (renders MANUAL tag, not SIM)
 }
 // §G.3 — POST /api/items/:itemId/call/:recipientId (directed agent call) and
 // POST /api/items/:itemId/manual/:recipientId (human log) both return this shape.

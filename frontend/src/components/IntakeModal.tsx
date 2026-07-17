@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { useDonna } from '../state';
 import type { Channel } from '../types';
+import { ChannelIcon, X } from '../icons';
 
-const CHANNELS: Array<{ id: Channel; ico: string; lbl: string }> = [
-  { id: 'voice', ico: '☎', lbl: 'Voice' },
-  { id: 'sms', ico: '💬', lbl: 'SMS' },
-  { id: 'email', ico: '✉', lbl: 'Email' },
-  { id: 'walk_in', ico: '🚶', lbl: 'Walk-in' },
+const CHANNELS: Array<{ id: Channel; lbl: string }> = [
+  { id: 'voice', lbl: 'Voice' },
+  { id: 'sms', lbl: 'SMS' },
+  { id: 'email', lbl: 'Email' },
+  { id: 'walk_in', lbl: 'Walk-in' },
 ];
 
 const PLACEHOLDERS: Record<Channel, string> = {
@@ -39,7 +40,7 @@ export function IntakeModal({ onClose }: { onClose: () => void }) {
       <div className="modal intake-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h3>New donation</h3>
-          <button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>
+          <button className="icon-btn" onClick={onClose} aria-label="Close"><X /></button>
         </div>
 
         <div className="chan-tabs">
@@ -49,7 +50,7 @@ export function IntakeModal({ onClose }: { onClose: () => void }) {
               className={`chan${channel === c.id ? ' active' : ''}`}
               onClick={() => setChannel(c.id)}
             >
-              <span className="ico">{c.ico}</span>
+              <span className="ico"><ChannelIcon channel={c.id} size={18} /></span>
               <span className="lbl">{c.lbl}</span>
             </button>
           ))}

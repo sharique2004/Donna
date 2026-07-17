@@ -3,6 +3,10 @@ import { useDonna } from '../state';
 import type { CallAttempt, DonationItem, RankedRecipient, Weights } from '../types';
 import { TERM_KEYS } from '../types';
 import { TERM_LABELS, HARDFAIL_LABELS, fmtHours, humanize } from '../theme';
+import { ArrowLeft, X, Snowflake, Gear, Chevron, Check } from '../icons';
+
+const STATUS_LABEL: Record<string, string> = { ok: 'Placed', bad: 'No takers', pending: 'Pending' };
+const OUTCOME_LABEL: Record<string, string> = { accepted: 'Accepted', declined: 'Declined', no_answer: 'No answer' };
 
 export function DetailPanel() {
   const {
@@ -59,18 +63,19 @@ export function DetailPanel() {
   return (
     <aside className="detail">
       <div className="detail-scroll">
-        {/* §G — back control returns the right dock to the Network directory (as ✕) */}
-        <button className="ob-back" onClick={closeDetail}>← Network</button>
+        {/* §G — back control returns the right dock to the Network directory */}
+        <button className="ob-back" onClick={closeDetail}><ArrowLeft size={13} /> Network</button>
 
         {/* 1 — item strip */}
         <div className="istrip">
-          <span className={`sdot ${statusClass(item)}`} />
           <span className="iname">{item.item}</span>
           <span className="imeta">
             {Math.round(item.qtyLbs).toLocaleString()} lb
-            {item.needsRefrigeration ? ' · ❄' : ''} · spoils in {Math.round(item.hoursToSpoil)}h
+            {item.needsRefrigeration && <> · <span className="snow" title="Refrigerated"><Snowflake size={12} /></span></>}
+            {' · '}spoils in {Math.round(item.hoursToSpoil)}h
           </span>
-          <button className="icon-btn close" onClick={closeDetail} aria-label="Close detail">✕</button>
+          <span className={`status-tag ${statusClass(item)}`}>{STATUS_LABEL[statusClass(item)]}</span>
+          <button className="icon-btn close" onClick={closeDetail} aria-label="Close detail"><X /></button>
         </div>
 
         {/* 2 — ranked matches */}
@@ -93,7 +98,7 @@ export function DetailPanel() {
             {fails.length > 0 && (
               <div className="fails">
                 <button className="fails-toggle" onClick={() => setShowFails((s) => !s)}>
-                  {fails.length} not feasible {showFails ? '▾' : '▸'}
+                  {fails.length} not feasible <Chevron size={13} className={`chev${showFails ? ' open' : ''}`} />
                 </button>
                 {showFails && fails.map((r) => (
                   <div className="fail-row" key={r.recipient.id}>
@@ -106,11 +111,11 @@ export function DetailPanel() {
           </div>
         )}
 
-        {/* 3 — tune (hidden behind ⚙) */}
+        {/* 3 — tune (hidden behind the gear icon) */}
         {weights && (
           <div className="tune">
             <button className="tune-toggle" onClick={() => setShowTune((s) => !s)} aria-expanded={showTune}>
-              <span className="gear">⚙</span> Tune weights
+              <span className="gear"><Gear size={14} /></span> Tune weights
             </button>
             {showTune && (
               <div className="sliders">
@@ -133,7 +138,7 @@ export function DetailPanel() {
 
         {/* 4 — dispatch */}
         {resolved ? (
-          <button className="btn block" disabled>✓ Dispatched &amp; resolved</button>
+          <button className="btn block" disabled><Check size={15} /> Dispatched &amp; resolved</button>
         ) : (
           <button className="btn hot block" onClick={onDispatchClick} disabled={!canDispatch || busy.dispatch}>
             {busy.dispatch
@@ -184,7 +189,7 @@ function RankRow({ r, idx, matched, expanded, why, onToggle }: {
         onClick={() => { onToggle(); selectRecipient(r.recipient.id); }}
       >
         <span className="rnum">#{idx + 1}</span>
-        <span className="rname">{r.recipient.name}{matched ? ' ✓' : ''}</span>
+        <span className="rname">{r.recipient.name}{matched && <Check size={13} className="matched-ico" />}</span>
         <span className="rscore">{s.total.toFixed(2)}</span>
       </button>
       <div className="rbar"><span className="rbar-fill" style={{ width: `${Math.round(s.total * 100)}%` }} /></div>
@@ -210,15 +215,13 @@ function RankRow({ r, idx, matched, expanded, why, onToggle }: {
 
 function AttemptLine({ a }: { a: CallAttempt }) {
   const [open, setOpen] = useState(false);
-  const ok = a.outcome === 'accepted';
-  const glyph = ok ? '✓' : a.outcome === 'declined' ? '✗' : '…';
   const tail = a.outcome === 'accepted' ? 'accepted' : (a.reason || humanize(a.outcome));
   return (
     <div className={`att ${a.outcome}${open ? ' open' : ''}`}>
       <button className="att-line" onClick={() => setOpen((o) => !o)}>
-        <span className="aglyph">{glyph}</span>
         <span className="aname">{a.recipientName}</span>
         <span className="atail">— {tail}</span>
+        <span className={`status-tag ${a.outcome}`}>{OUTCOME_LABEL[a.outcome]}</span>
       </button>
       {open && (
         <div className="att-transcript">

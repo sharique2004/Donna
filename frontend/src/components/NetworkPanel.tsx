@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useDonna } from '../state';
 import type { CallLogEntry, CallOutcome, Donation, DonationItem, Recipient } from '../types';
 import { humanize } from '../theme';
+import { TypeIcon, Phone, Person, X } from '../icons';
 
 // §G.2 — Outbound · Network. The right dock's default view is a DIRECTORY of every
 // recipient with a phone number on file (GET /api/recipients). The chronological
@@ -16,16 +17,19 @@ interface RecipientInfo {
   acceptedItems: string[];        // unique item names this place agreed to take
 }
 
-const TYPE_GLYPH: Record<Recipient['type'], string> = {
-  pantry: '🛒',
-  community_agency: '🤝',
+// §H.2 — last-call outcome as a small-caps micro-label after the name (not a dot).
+// Never-called shows a quiet em dash.
+const OUTCOME_LABEL: Record<CallOutcome, string> = {
+  accepted: 'Accepted',
+  declined: 'Declined',
+  no_answer: 'No answer',
 };
 
-function outcomeDot(o: CallOutcome | null): string {
-  if (o === 'accepted') return 'ok';
-  if (o === 'declined') return 'bad';
-  if (o === 'no_answer') return 'warn';
-  return 'never';                 // never-called → grey
+function outcomeTag(o: CallOutcome | null): { cls: string; text: string } {
+  if (o === 'accepted') return { cls: 'accepted', text: OUTCOME_LABEL.accepted };
+  if (o === 'declined') return { cls: 'declined', text: OUTCOME_LABEL.declined };
+  if (o === 'no_answer') return { cls: 'no_answer', text: OUTCOME_LABEL.no_answer };
+  return { cls: 'never', text: '—' };   // never-called → quiet em dash
 }
 
 function fmtTime(iso: string): string {
@@ -140,7 +144,7 @@ function RecipientRow({ r, info, expanded, expandedCallKey, onToggle, onToggleCa
   expandedCallKey: string | null; onToggle: () => void; onToggleCall: (k: string) => void;
   onDonnaCall: () => void; onManualCall: () => void;
 }) {
-  const dot = outcomeDot(info?.lastOutcome ?? null);
+  const tag = outcomeTag(info?.lastOutcome ?? null);
   const accepted = info?.acceptedItems ?? [];
   const history = info?.calls ?? [];
 
@@ -148,9 +152,9 @@ function RecipientRow({ r, info, expanded, expandedCallKey, onToggle, onToggleCa
     <div className={`net-row${expanded ? ' open' : ''}`}>
       <button className="net-line" onClick={onToggle} aria-expanded={expanded}>
         <span className="net-l1">
-          <span className={`sdot ${dot}`} />
+          <span className="net-glyph" title={humanize(r.type)}><TypeIcon type={r.type} size={14} /></span>
           <span className="net-name">{r.name}</span>
-          <span className="net-glyph" title={humanize(r.type)}>{TYPE_GLYPH[r.type]}</span>
+          <span className={`status-tag ${tag.cls}`}>{tag.text}</span>
           {info?.lastAt && <span className="net-lastcall">{fmtTime(info.lastAt)}</span>}
         </span>
         <span className="net-l2">
@@ -193,8 +197,8 @@ function RecipientRow({ r, info, expanded, expandedCallKey, onToggle, onToggleCa
           )}
 
           <div className="net-actions">
-            <button className="btn hot sm" onClick={onDonnaCall}>☎ Donna, call</button>
-            <button className="btn sm" onClick={onManualCall}>👤 Log manual call</button>
+            <button className="btn hot sm" onClick={onDonnaCall}><Phone size={14} /> Donna, call</button>
+            <button className="btn sm" onClick={onManualCall}><Person size={14} /> Log manual call</button>
           </div>
         </div>
       )}
@@ -202,21 +206,22 @@ function RecipientRow({ r, info, expanded, expandedCallKey, onToggle, onToggleCa
   );
 }
 
+// Provider tag: text in a hairline box (§H.2) — MANUAL (human), SIM (simulated),
+// VAPI (real placed call).
 function CallTag({ c }: { c: CallLogEntry }) {
-  if (c.manual) return <span className="ctag manual" title="Human-logged call">👤</span>;
-  if (c.simulated) return <span className="ctag sim" title="Simulated call">SIM</span>;
-  return null;
+  if (c.manual) return <span className="ctag" title="Human-logged call">MANUAL</span>;
+  if (c.simulated) return <span className="ctag" title="Simulated call">SIM</span>;
+  return <span className="ctag" title="VAPI call">VAPI</span>;
 }
 
 function CallHistoryLine({ c, open, onToggle }: { c: CallLogEntry; open: boolean; onToggle: () => void }) {
-  const glyph = c.outcome === 'accepted' ? '✓' : c.outcome === 'declined' ? '✗' : '…';
   const tail = c.outcome === 'accepted' ? 'accepted' : (c.reason || humanize(c.outcome));
   return (
     <div className={`chl ${c.outcome}${open ? ' open' : ''}`}>
       <button className="chl-line" onClick={onToggle}>
-        <span className="chl-glyph">{glyph}</span>
         <span className="chl-item">{humanize(c.itemName)}</span>
         <CallTag c={c} />
+        <span className={`status-tag ${c.outcome}`}>{OUTCOME_LABEL[c.outcome]}</span>
         <span className="chl-time">{fmtTime(c.at)}</span>
         <span className="chl-tail">{tail}</span>
       </button>
@@ -279,7 +284,7 @@ function DonnaCallModal({ recipient, pending, onClose, onPlaced }: {
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h3>Call {recipient.name}</h3>
-          <button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>
+          <button className="icon-btn" onClick={onClose} aria-label="Close"><X /></button>
         </div>
         {pending.length === 0 ? (
           <p>No pending items to offer — everything is already placed or closed.</p>
@@ -292,7 +297,7 @@ function DonnaCallModal({ recipient, pending, onClose, onPlaced }: {
         <div className="modal-actions">
           <button className="link-btn" onClick={onClose}>Cancel</button>
           <button className="btn hot" onClick={submit} disabled={!itemId || busy}>
-            {busy ? <span className="loading-line"><span className="spinner" /> Calling…</span> : '☎ Place call'}
+            {busy ? <span className="loading-line"><span className="spinner" /> Calling…</span> : <><Phone size={14} /> Place call</>}
           </button>
         </div>
       </div>
@@ -338,13 +343,13 @@ function ManualCallModal({ recipient, pending, onClose, onLogged }: {
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <h3>Log manual call · {recipient.name}</h3>
-          <button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>
+          <button className="icon-btn" onClick={onClose} aria-label="Close"><X /></button>
         </div>
         {pending.length === 0 ? (
           <p>No pending items to log against — everything is already placed or closed.</p>
         ) : (
           <>
-            <p className="modal-hint">Record a call you made yourself. It lands in the log like an agent call, flagged 👤.</p>
+            <p className="modal-hint">Record a call you made yourself. It lands in the log like an agent call, flagged MANUAL.</p>
             <div className="field-label">Item</div>
             <PendingPicker pending={pending} value={itemId} onChange={setItemId} />
 

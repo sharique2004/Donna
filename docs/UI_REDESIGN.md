@@ -237,3 +237,64 @@ Result must look like a professional ops tool at first glance.
 ### G.5 Guardrails
 Scoring/pipeline/API beyond §G.3 unchanged. All tests green. tsc + vitest +
 vite build green. Canned e2e < 1s. Item Detail view internals unchanged.
+
+## H. v1.4 — De-AI visual revamp + Demo page (user feedback)
+
+User verdict: layout is loved — DO NOT change it. But the surface styling
+"looks very, very AI generated": the red/green glowing dots and emoji have to
+go. Same structure, new skin. Plus a new empty Demo page.
+
+### H.1 Hard bans (the "AI tells")
+- **ZERO emojis anywhere.** Every emoji/pictograph glyph is replaced by an
+  inline SVG stroke icon (see H.2) or plain text. This includes: channel icons,
+  the handshake/cart glyphs in Network rows, the manual-call person marker,
+  callback envelope, tune gear, phone glyphs, snowflake — all of them. Audit
+  with a regex for non-ASCII in frontend/src before returning.
+- **No glowing colored dots.** Kill the dot+glow status language entirely.
+- **No glassy translucency/backdrop-blur, no soft shadows-with-glow, no
+  gradient buttons, no green-tinted pill fills.**
+
+### H.2 The replacement language (professional dispatch tool)
+- **Status becomes typographic + structural, not ornamental:**
+  - Items (Inbound): keep the 3px left rule as the only color element; status
+    is a small-caps micro-label at line end — `PENDING` (muted), `PLACED`
+    (muted green text), `NO TAKERS` (muted red text). Red card keeps a 4% tint
+    max. "→ {recipient}" stays as plain text.
+  - Network rows: last-call outcome as a micro-label after the name
+    (`ACCEPTED` / `DECLINED` / quiet `—` when never called), not a dot.
+  - Transcript/manual markers: text tags `SIM` / `MANUAL` / `VAPI` in hairline
+    boxes, as the SIM tag already is.
+- **Icons:** single inline SVG set (one file `src/icons.tsx`), stroke-based,
+  16px, 1.5px stroke, `currentColor`, Lucide-like geometry, muted by default.
+  Needed: phone, message-square, mail, footprints/walk, snowflake, gear,
+  person, arrow-left, x, plus. No icon fonts, no emoji fallbacks.
+- **Surfaces:** opaque panels (near-black, e.g. #101215 on #0b0d0f canvas),
+  1px hairline borders at 6–8% white alpha, radius 8 (panels) / 6 (rows).
+  Dividers are hairlines, not nested cards.
+- **Buttons:** primary = solid accent, radius 6, no glow/gradient; secondary =
+  hairline outline, transparent fill. Text labels, sentence case ("Donna, call",
+  "Log manual call", "+ Donation" stays).
+- **Chips (agreed-to-take, item pills):** hairline-bordered quiet tags —
+  transparent fill, muted foreground, radius 4. No colored fills.
+- **Type:** system sans; micro-labels 11px/650/+0.06em small caps; body 13–14;
+  titles 16/650. Timestamps 12px tabular, muted. The wordmark may get slight
+  character (tighter tracking, accent period: "Donna.") but nothing cute.
+- Map, layout dimensions, interactions, polling, routes: UNCHANGED.
+- Equity + Detail views get the same skin (labels/buttons/borders), no
+  structural change. Score bars in Detail stay single-accent thin rules.
+
+### H.3 Demo page (empty mount point)
+- Header segmented control becomes `Dispatch | Equity | Demo`.
+- New `frontend/src/components/DemoPage.tssx → DemoPage.tsx`: an intentionally
+  EMPTY full-bleed container rendered when the Demo tab is active, styled to
+  theme (canvas bg), containing exactly one clearly-marked mount slot:
+  `<section id="demo-root" data-demo-slot />` plus one muted centered line
+  ("Demo") so the tab isn't a black void. A code comment marks it as the
+  ingestion point for an externally-built demo page (pipeline exists; content
+  arrives later). No fetches, no other chrome.
+
+### H.4 Verification
+tsc + vite build green; non-ASCII/emoji regex audit of frontend/src returns
+clean (map attribution glyphs and CSS arrows like → ← ✕ in text are allowed
+ONLY for →, ←, ✕, ⌀ typographic marks — no pictographic emoji); all three
+tabs render.

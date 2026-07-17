@@ -3,6 +3,7 @@ import { useDonna } from '../state';
 import type { ConfigPatch, ManagerReply } from '../types';
 import { TERM_COLORS, TERM_LABELS, humanize } from '../theme';
 import { TERM_KEYS } from '../types';
+import { X, Check } from '../icons';
 
 const SUGGESTIONS = [
   "St. Mary's just got a new walk-in freezer",
@@ -35,7 +36,7 @@ export function ManagerDrawer({ open, onClose }: { open: boolean; onClose: () =>
             <h3>Manager console</h3>
             <div className="sub">Teach Donna in plain English</div>
           </div>
-          <button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>
+          <button className="icon-btn" onClick={onClose} aria-label="Close"><X /></button>
         </div>
 
         <div className="drawer-cfg">
@@ -109,7 +110,7 @@ function PatchChips({ reply, name }: { reply: ManagerReply; name: (id?: string) 
     <div className="patch-chips">
       {reply.patches.map((p, i) => (
         <div key={i} className={`patch-chip${reply.applied ? '' : ' rejected'}`}>
-          <span className="pop-op">{reply.applied ? '✓' : '✕'}</span>
+          <span className="pop-op">{reply.applied ? <Check size={13} /> : <X size={13} />}</span>
           {describePatch(p, name)}
         </div>
       ))}
@@ -121,8 +122,8 @@ function describePatch(p: ConfigPatch, name: (id?: string) => string): string {
   const who = name(p.recipientId);
   const v = p.value as any;
   switch (p.op) {
-    case 'add_infrastructure': return `${who} ➕ ${humanize(v)}`;
-    case 'remove_infrastructure': return `${who} ➖ ${humanize(v)}`;
+    case 'add_infrastructure': return `${who}: add ${humanize(v)}`;
+    case 'remove_infrastructure': return `${who}: remove ${humanize(v)}`;
     case 'set_accepts': return `${who} accepts → ${arr(v)}`;
     case 'set_rejects': return `${who} rejects → ${arr(v)}`;
     case 'set_volume': return `${who} weekly volume → ${Number(v).toLocaleString()} lb`;

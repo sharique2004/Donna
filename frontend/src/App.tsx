@@ -7,9 +7,11 @@ import { MapView } from './components/MapView';
 import { DetailPanel } from './components/DetailPanel';
 import { NetworkPanel } from './components/NetworkPanel';
 import { EquityTab } from './components/EquityTab';
+import { DemoPage } from './components/DemoPage';
 import { ManagerDrawer } from './components/ManagerDrawer';
+import { MessageSquare, RotateCcw } from './icons';
 
-type View = 'dispatch' | 'equity';
+type View = 'dispatch' | 'equity' | 'demo';
 
 export default function App(): React.JSX.Element {
   return (
@@ -34,29 +36,30 @@ function Shell() {
       <MapView />
 
       <header className="hbar">
-        <span className="wordmark">Donna</span>
+        <span className="wordmark">Donna<span className="wm-dot">.</span></span>
         <div className="seg">
           <button className={`seg-btn${view === 'dispatch' ? ' on' : ''}`} onClick={() => setView('dispatch')}>Dispatch</button>
           <button className={`seg-btn${view === 'equity' ? ' on' : ''}`} onClick={() => setView('equity')}>Equity</button>
+          <button className={`seg-btn${view === 'demo' ? ' on' : ''}`} onClick={() => setView('demo')}>Demo</button>
         </div>
         <div className="hspacer" />
-        <span className={`status-dot${live ? ' live' : ''}`} title={modeTip} />
+        <span className={`mode-tag${live ? ' live' : ''}`} title={modeTip}>{live ? 'Live' : 'Sim'}</span>
         <button className="icon-btn mgr" onClick={() => setMgrOpen((o) => !o)} title="Manager console" aria-label="Manager console">
-          🗨{appliedPatchCount > 0 && <span className="badge">{appliedPatchCount}</span>}
+          <MessageSquare />{appliedPatchCount > 0 && <span className="badge">{appliedPatchCount}</span>}
         </button>
-        <button className="icon-btn" onClick={reset} disabled={busy.init} title="Reset demo" aria-label="Reset demo">↻</button>
+        <button className="icon-btn" onClick={reset} disabled={busy.init} title="Reset demo" aria-label="Reset demo"><RotateCcw /></button>
       </header>
 
-      {view === 'dispatch' ? (
+      {view === 'dispatch' && (
         <>
           <Feed onNew={() => setIntakeOpen(true)} />
           {/* right dock is always mounted: Outbound · Network directory by default,
               swaps to the item Detail view while an item is selected (§G) */}
           {detailOpen ? <DetailPanel /> : <NetworkPanel />}
         </>
-      ) : (
-        <EquityTab />
       )}
+      {view === 'equity' && <EquityTab />}
+      {view === 'demo' && <DemoPage />}
 
       {intakeOpen && <IntakeModal onClose={() => setIntakeOpen(false)} />}
 
