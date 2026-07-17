@@ -1,6 +1,12 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useDonna } from '../state';
 import type { Channel, Donation, DonationItem } from '../types';
+import { humanize, spoilCountdown } from '../theme';
+
+// §G.1 — Inbound is ITEM-CENTRIC: donations flattened to items, newest donation
+// first. Each card ≤2 lines with an UNMISSABLE procurement state (colored left
+// edge + dot): amber pending → green placed → RED unplaceable (red card tint).
+// Donation grouping survives only as a thin separator label.
 
 export const CHANNEL_ICON: Record<Channel, string> = {
   voice: '☎',
@@ -10,34 +16,56 @@ export const CHANNEL_ICON: Record<Channel, string> = {
   web_form: '🌐',
 };
 
-function statusClass(it: DonationItem): string {
-  if (it.status === 'matched') return 'ok';
-  if (it.status === 'unplaceable') return 'bad';
+type ItemState = 'pending' | 'placed' | 'unplaceable';
+
+function itemState(it: DonationItem): ItemState {
+  if (it.status === 'matched') return 'placed';
+  if (it.status === 'unplaceable') return 'unplaceable';
   return 'pending';
 }
 
+function fmtTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
 export function Feed({ onNew }: { onNew: () => void }) {
-  const { donations, selectedItemId, current, openItem, busy } = useDonna();
+  const { donations, selectedItemId, current, openItem, busy, recipientsById } = useDonna();
+
+  // Newest donation first; each contributes its ordered items.
+  const groups = useMemo(() => donations.slice().reverse(), [donations]);
+  const itemCount = useMemo(
+    () => donations.reduce((n, d) => n + d.items.length, 0),
+    [donations],
+  );
 
   return (
     <aside className="feed">
-      <div className="feed-head">
-        <span className="feed-title">Inbound</span>
-        <span className="feed-legend" title="Channels donations arrive on">☎ 💬 ✉ 🚶</span>
+      <div className="panel-head">
+        <span className="panel-title">Inbound</span>
+        {itemCount > 0 && <span className="panel-count">{itemCount}</span>}
       </div>
 
       <div className="feed-scroll">
-        {donations.length === 0 ? (
-          <div className="feed-empty">Waiting for donations…</div>
+        {groups.length === 0 ? (
+          <div className="panel-empty">Waiting for donations…</div>
         ) : (
-          donations.slice().reverse().map((d) => (
-            <FeedCard
-              key={d.id}
-              d={d}
-              activeDonation={current?.donation.id === d.id}
-              selectedItemId={selectedItemId}
-              onItem={(itemId) => openItem(d.id, itemId)}
-            />
+          groups.map((d) => (
+            <div className="don-group" key={d.id}>
+              <div className="don-sep">
+                <span className="don-donor">{d.donorName || 'Unknown donor'}</span>
+                <span className="don-meta">{CHANNEL_ICON[d.sourceChannel]} {fmtTime(d.receivedAt)}</span>
+              </div>
+              {d.items.map((it) => (
+                <ItemCard
+                  key={it.id}
+                  d={d}
+                  it={it}
+                  recipientName={it.matchedRecipientId ? recipientsById[it.matchedRecipientId]?.name : undefined}
+                  selected={current?.donation.id === d.id && selectedItemId === it.id}
+                  onOpen={() => openItem(d.id, it.id)}
+                />
+              ))}
+            </div>
           ))
         )}
       </div>
@@ -47,30 +75,39 @@ export function Feed({ onNew }: { onNew: () => void }) {
   );
 }
 
-function FeedCard({ d, activeDonation, selectedItemId, onItem }: {
-  d: Donation; activeDonation: boolean; selectedItemId: string | null;
-  onItem: (itemId: string) => void;
+function ItemCard({ d, it, recipientName, selected, onOpen }: {
+  d: Donation; it: DonationItem; recipientName?: string;
+  selected: boolean; onOpen: () => void;
 }) {
-  const time = new Date(d.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const state = itemState(it);
+  const qty = Math.round(it.qtyLbs).toLocaleString();
+
+  // Line 2 changes with the procurement state (§G.1).
+  let line2: React.ReactNode;
+  if (state === 'placed') {
+    line2 = <span className="ic-placed">→ {recipientName || 'placed'}</span>;
+  } else if (state === 'unplaceable') {
+    line2 = <span className="ic-dead">no takers — donor notified</span>;
+  } else {
+    line2 = <span className="ic-donor">{d.donorName || 'Unknown donor'}</span>;
+  }
+
   return (
-    <div className={`fcard${activeDonation ? ' active' : ''}`}>
-      <div className="fcard-line1">
-        <span className="fdonor">{d.donorName || 'Unknown donor'}</span>
-        <span className="fmeta">{CHANNEL_ICON[d.sourceChannel]} {time}</span>
-      </div>
-      <div className="fpills">
-        {d.items.map((it) => (
-          <button
-            key={it.id}
-            className={`pill-item${activeDonation && selectedItemId === it.id ? ' sel' : ''}`}
-            onClick={() => onItem(it.id)}
-            title={it.item}
-          >
-            <span className={`sdot ${statusClass(it)}`} />
-            <span className="pname">{it.item}</span>
-          </button>
-        ))}
-      </div>
-    </div>
+    <button
+      className={`icard ${state}${selected ? ' sel' : ''}`}
+      onClick={onOpen}
+      title={humanize(it.item)}
+    >
+      <span className="icard-edge" />
+      <span className="icard-body">
+        <span className="icard-l1">
+          <span className={`sdot ${state === 'placed' ? 'ok' : state === 'unplaceable' ? 'bad' : 'warn'}`} />
+          <span className="ic-name">{humanize(it.item)}</span>
+          <span className="ic-qty">{qty} lb</span>
+          <span className="ic-spoil">{it.needsRefrigeration ? '❄ ' : ''}{spoilCountdown(d.receivedAt, it.hoursToSpoil)}</span>
+        </span>
+        <span className="icard-l2">{line2}</span>
+      </span>
+    </button>
   );
 }

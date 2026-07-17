@@ -59,8 +59,8 @@ export function DetailPanel() {
   return (
     <aside className="detail">
       <div className="detail-scroll">
-        {/* §F — back control returns the right dock to the Outbound feed (as ✕) */}
-        <button className="ob-back" onClick={closeDetail}>← Outbound</button>
+        {/* §G — back control returns the right dock to the Network directory (as ✕) */}
+        <button className="ob-back" onClick={closeDetail}>← Network</button>
 
         {/* 1 — item strip */}
         <div className="istrip">

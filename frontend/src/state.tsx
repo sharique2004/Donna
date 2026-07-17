@@ -1,8 +1,9 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api';
+import { humanize } from './theme';
 import type {
-  AgentConfig, CallLogEntry, Channel, Donation, EnrichedDonation, EquitySimResult,
-  ManagerReply, Mode, RankResponse, RankedRecipient, Recipient, Weights,
+  AgentConfig, CallAttempt, CallLogEntry, Channel, Donation, EnrichedDonation, EquitySimResult,
+  ManagerReply, ManualCallInput, Mode, RankResponse, RankedRecipient, Recipient, Weights,
 } from './types';
 
 export interface ChatMsg { role: 'user' | 'bot'; text: string; reply?: ManagerReply }
@@ -37,6 +38,8 @@ interface DonnaState {
   closeDetail: () => void;
   selectRecipient: (id: string | null) => void;
   dispatch: () => Promise<void>;
+  callRecipient: (itemId: string, recipientId: string) => Promise<CallAttempt>;
+  logManualCall: (itemId: string, recipientId: string, input: ManualCallInput) => Promise<CallAttempt>;
   rerank: (itemId: string, weights: Weights) => Promise<void>;
   updateConfig: (patch: Partial<AgentConfig>) => Promise<void>;
   managerSend: (message: string) => Promise<void>;
@@ -214,6 +217,49 @@ export function DonnaProvider({ children }: { children: React.ReactNode }) {
     } finally { setBusyKey('dispatch', false); }
   }, [current, refreshList, refreshCalls, refreshRecipients, pushToast]);
 
+  // After a directed or manual call resolves, pull every DB-derived surface back
+  // in sync (inbound items, network call history, recipient ledgers) and refresh
+  // the open Detail view if one is mounted. All state comes from these fetches.
+  const syncAfterCall = useCallback(async () => {
+    await Promise.all([refreshList(), refreshCalls(), refreshRecipients()]);
+    if (current) {
+      try {
+        const e = await api.getDonation(current.donation.id);
+        setCurrent((prev) => ({
+          donation: e.donation,
+          rankings: Object.keys(e.rankings || {}).length ? e.rankings : (prev?.rankings ?? {}),
+        }));
+      } catch { /* keep prior current */ }
+    }
+  }, [refreshList, refreshCalls, refreshRecipients, current]);
+
+  // §G.2 — "Donna, call": directed agent call to one recipient for one pending item.
+  const callRecipient = useCallback(async (itemId: string, recipientId: string) => {
+    try {
+      const res = await api.callRecipient(itemId, recipientId);
+      await syncAfterCall();
+      const ok = res.attempt.outcome === 'accepted';
+      pushToast(ok ? `${res.attempt.recipientName} accepted` : `${res.attempt.recipientName} — ${res.attempt.reason || humanize(res.attempt.outcome)}`, !ok && res.attempt.outcome === 'declined');
+      return res.attempt;
+    } catch (err: any) {
+      pushToast(err.message || 'Call failed', true);
+      throw err;
+    }
+  }, [syncAfterCall, pushToast]);
+
+  // §G.2 — "Log manual call": human-recorded outcome, persisted like an agent call.
+  const logManualCall = useCallback(async (itemId: string, recipientId: string, input: ManualCallInput) => {
+    try {
+      const res = await api.logManualCall(itemId, recipientId, input);
+      await syncAfterCall();
+      pushToast('Manual call logged');
+      return res.attempt;
+    } catch (err: any) {
+      pushToast(err.message || 'Could not log call', true);
+      throw err;
+    }
+  }, [syncAfterCall, pushToast]);
+
   const rerank = useCallback(async (itemId: string, weights: Weights) => {
     try {
       const r = await api.rank(itemId, weights);
@@ -289,6 +335,7 @@ export function DonnaProvider({ children }: { children: React.ReactNode }) {
     selectedItemId, selectedRecipientId, detailOpen, liveRank, equity, chat, appliedPatchCount,
     busy, toast, activeRankings, activeExplanation,
     ingest, loadCanned, openItem, closeDetail, selectRecipient, dispatch,
+    callRecipient, logManualCall,
     rerank, updateConfig, managerSend, runEquity, reset, pushToast,
   };
 

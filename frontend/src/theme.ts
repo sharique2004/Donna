@@ -104,3 +104,18 @@ export function fmtHours(n: number): string {
   if (n < 1) return `${Math.round(n * 60)} min`;
   return `${n.toFixed(1)} h`;
 }
+
+/**
+ * Live spoilage countdown from a donation's receivedAt + the item's hoursToSpoil.
+ * Recomputed on each render (the 3s poll re-renders the feed), so it reads as a
+ * ticking clock during the demo. Clamped at zero → "spoiled".
+ */
+export function spoilCountdown(receivedAt: string, hoursToSpoil: number): string {
+  const deadline = new Date(receivedAt).getTime() + hoursToSpoil * 3600_000;
+  const msLeft = deadline - Date.now();
+  if (msLeft <= 0) return 'spoiled';
+  const hLeft = msLeft / 3600_000;
+  if (hLeft < 1) return `${Math.max(1, Math.round(hLeft * 60))}m left`;
+  if (hLeft < 24) return `${Math.round(hLeft)}h left`;
+  return `${Math.round(hLeft / 24)}d left`;
+}

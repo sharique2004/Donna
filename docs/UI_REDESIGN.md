@@ -155,3 +155,85 @@ dispatch, returning to Outbound shows the fresh attempts via the poll.
 Frontend-only change (plus `getCalls()` + `CallLogEntry` in the typed api
 client). §B design rules (one accent, ≤2-line rows, humanized copy) apply
 unchanged. tsc + vite build must stay green.
+
+## G. v1.3 — Procurement board (user feedback)
+
+Mental model shift: Inbound = ITEMS being procured and their fate. Outbound =
+the RECIPIENT NETWORK (places whose phone numbers are on file). Feeds are out;
+state is in. Plus: the dashboard needs a real visual-quality pass.
+
+### G.1 Left dock — "Inbound"
+Item-centric cards (from the DB donations poll, flattened to items, newest
+donation first), each ≤2 lines:
+- Line 1: item name · qty lbs · spoil countdown (`❄` if refrigerated)
+- Line 2: donor · channel icon · time
+- Status treatment (must be UNMISSABLE at a glance, e.g. colored left edge +
+  dot): **amber** pending → **green** placed (line 2 gains "→ {recipient}") →
+  **RED** unplaceable — the item "will not be procured"; red card tint, line 2
+  gains "no takers — donor notified".
+- Click an item card → right dock swaps to the existing item Detail view
+  (rankings / tune / Dispatch); "← Network" back control returns.
+- "+ Donation" button stays. Donation-level grouping may appear only as a thin
+  separator label (donor · time), never a heavy card-in-card.
+
+### G.2 Right dock — "Outbound · Network"
+Directory of ALL recipients from `GET /api/recipients` (these ARE the places
+with phone numbers on the dashboard). Sort: most-recently-called first, then
+alphabetical. Row (≤2 lines collapsed):
+- Line 1: name · type glyph · status dot of their LAST call (green accepted /
+  red declined / grey never-called)
+- Line 2: chips of item names this place has AGREED TO TAKE (from accepted
+  attempts in the DB, across all donations); if none: muted phone number.
+- Click row → expand in place (one at a time):
+  - lead contact · phone · drive-relevant info kept minimal
+  - Call history from the DB: one line per call (item · time · outcome);
+    click a line → full transcript chat bubbles (as today).
+  - Two actions:
+    **"Donna, call"** → modal: pick any PENDING item → `POST
+    /api/items/:itemId/call/:recipientId` → directed agent call (sim/vapi per
+    env) → transcript appears in place, statuses update everywhere.
+    **"Log manual call"** (human intervention) → modal: pick pending item,
+    outcome accepted/declined, optional reason/notes → `POST
+    /api/items/:itemId/manual/:recipientId` → recorded in the DB exactly like
+    an agent call but flagged manual (renders with a 👤 marker instead of SIM).
+The chronological outbound feed is REPLACED by this network view (per-recipient
+history covers it; `GET /api/calls` stays for API completeness).
+
+### G.3 Backend additions
+1. `POST /api/items/:itemId/call/:recipientId` — directed single call,
+   bypassing the ranking loop: draftOffer → voice.placeCall → append attempt,
+   addHistory; on accepted: item matched + creditReceived. 404 unknown ids,
+   409 if item not `pending`. Returns `{item, attempt}`.
+2. `POST /api/items/:itemId/manual/:recipientId` — body `{outcome:
+   'accepted'|'declined'|'no_answer', reason?, notes?}` → construct a
+   CallAttempt with `manual: true` (ADD optional `manual?: boolean` to
+   CallAttempt — narrow additive change, permitted by §3), `simulated: false`,
+   transcript = notes as a single agent-line if provided. Same persistence
+   semantics as (1). Same 404/409 rules.
+3. BOTH endpoints, after an outcome that resolves the last pending item of a
+   donation, must run the same finish path as dispatchDonation: compose donor
+   callback → donorMessage → donation status `resolved`. (Factor the finish
+   check out of the pipeline so all three callers share it.)
+4. Vitest coverage: accepted path (matched + credit + history), declined path
+   (history + prefs learning window applies), manual flag round-trip, 409 on
+   non-pending item, donation auto-resolution when last item closes via a
+   directed/manual call.
+
+### G.4 Visual-quality pass ("the dashboard looks like shit")
+Applies to every surface, same one-accent rule:
+- Type scale locked to 13/14/16/20 with one weight jump (500→650); tabular
+  numerals for times/scores; NO monospace outside timestamps.
+- 12px spacing grid; panel padding 16; row padding 10×12; radii 12 (panels)
+  / 8 (rows); borders 1px at low alpha — kill any double borders.
+- Panel headers: title + subtle count badge (e.g. "Inbound · 3", "Network ·
+  15"); one quiet icon row max.
+- Hover/active states on every clickable row (bg lift + border accent);
+  smooth 120ms transitions; focus-visible rings.
+- Status dots get a 2px glow of their own color; red cards a 6% red tint.
+- Map controls/attribution restyled to theme; thin styled scrollbars;
+  empty states one muted line, centered.
+Result must look like a professional ops tool at first glance.
+
+### G.5 Guardrails
+Scoring/pipeline/API beyond §G.3 unchanged. All tests green. tsc + vitest +
+vite build green. Canned e2e < 1s. Item Detail view internals unchanged.

@@ -68,6 +68,7 @@ export interface CallAttempt {
   outcome: CallOutcome; reason?: string;
   transcript: Array<{ speaker: 'agent' | 'recipient'; text: string }>;
   at: string; simulated: boolean;
+  manual?: boolean;                 // v1.3 §G.3.2 — human-logged call (not agent/sim)
 }
 export interface ConfigPatch {                       // Agent 4 output — declarative only
   op: 'set_accepts' | 'add_infrastructure' | 'remove_infrastructure'

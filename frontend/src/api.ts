@@ -2,9 +2,9 @@
 // All calls hit the Vite dev proxy (/api → localhost:8787). No direct URLs.
 
 import type {
-  AgentConfig, CallLogEntry, Channel, Donation, EnrichedDonation, EquitySimResult,
-  HealthResponse, HistoryEvent, ManagerReply, RankResponse, RankedRecipient,
-  Recipient, Weights,
+  AgentConfig, CallLogEntry, Channel, DirectedCallResponse, Donation, EnrichedDonation,
+  EquitySimResult, HealthResponse, HistoryEvent, ManagerReply, ManualCallInput,
+  RankResponse, RankedRecipient, Recipient, Weights,
 } from './types';
 
 const BASE = '/api';
@@ -63,6 +63,22 @@ export const api = {
         explanation: raw.explanation ?? '',
         warnings: raw.warnings,
       };
+    }),
+
+  // §G.3 — directed single call, bypassing the ranking loop. 404 unknown ids,
+  // 409 if the item is not pending. Returns { item, attempt }.
+  callRecipient: (itemId: string, recipientId: string) =>
+    request<DirectedCallResponse>(`/items/${itemId}/call/${recipientId}`, {
+      method: 'POST',
+      body: '{}',
+    }),
+
+  // §G.3 — human-logged call (no voice provider); recorded exactly like an agent
+  // call but flagged manual. Same 404/409 rules. Returns { item, attempt }.
+  logManualCall: (itemId: string, recipientId: string, input: ManualCallInput) =>
+    request<DirectedCallResponse>(`/items/${itemId}/manual/${recipientId}`, {
+      method: 'POST',
+      body: JSON.stringify(input),
     }),
 
   listRecipients: () => request<Recipient[]>('/recipients'),

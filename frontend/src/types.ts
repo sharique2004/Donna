@@ -72,7 +72,12 @@ export interface CallAttempt {
   outcome: CallOutcome; reason?: string;
   transcript: Array<{ speaker: 'agent' | 'recipient'; text: string }>;
   at: string; simulated: boolean;
+  manual?: boolean;                 // §G.3 — human-logged intervention (renders 👤, not SIM)
 }
+// §G.3 — POST /api/items/:itemId/call/:recipientId (directed agent call) and
+// POST /api/items/:itemId/manual/:recipientId (human log) both return this shape.
+export interface DirectedCallResponse { item: DonationItem; attempt: CallAttempt; }
+export interface ManualCallInput { outcome: CallOutcome; reason?: string; notes?: string; }
 // §D.5 / §F — one flattened call-log row per CallAttempt, tagged with its donation
 // and item. Mirrors backend/src/server.ts CallLogEntry (GET /api/calls, newest
 // first). Feeds the Outbound feed.
