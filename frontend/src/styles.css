@@ -132,6 +132,23 @@ body {
 .seg-btn:hover { color: var(--text); }
 .seg-btn.on { color: var(--text); background: var(--surface-3); }
 
+/* Pitch — right-side ribbon button, immediately left of the mode tag. Reads as
+   a peer of the mode tag rather than a third Dispatch/Demo segment: the deck is
+   a presentation surface, not an ops view. */
+.pitch-btn {
+  appearance: none; background: transparent; cursor: pointer;
+  color: var(--text-dim); font: 600 12px var(--display);
+  padding: 4px 13px; border: 1px solid var(--border); border-radius: var(--radius-s);
+  transition: color .15s var(--ease), background .15s var(--ease), border-color .15s var(--ease);
+}
+.pitch-btn:hover { color: var(--text); background: var(--surface-2); }
+.pitch-btn.on { color: var(--hot); border-color: rgba(255,106,61,0.4); background: var(--surface-3); }
+
+/* The deck is a standalone document; the frame just gives it the viewport
+   below the 44px ribbon and covers the full-bleed map hero. */
+.pitch-stage { position: absolute; top: 44px; left: 0; right: 0; bottom: 0; z-index: 15; background: var(--bg); }
+.pitch-frame { width: 100%; height: 100%; border: 0; display: block; }
+
 /* header mode indicator — a text micro-label tag, not a glowing dot (§H.1) */
 .mode-tag {
   font: 650 10px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase;

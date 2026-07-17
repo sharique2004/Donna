@@ -7,10 +7,11 @@ import { MapView } from './components/MapView';
 import { DetailPanel } from './components/DetailPanel';
 import { NetworkPanel } from './components/NetworkPanel';
 import { DemoStage } from './components/DemoStage';
+import { PitchStage } from './components/PitchStage';
 import { ManagerDrawer } from './components/ManagerDrawer';
 import { MessageSquare, RotateCcw } from './icons';
 
-type View = 'dispatch' | 'demo';
+type View = 'dispatch' | 'demo' | 'pitch';
 
 export default function App(): React.JSX.Element {
   return (
@@ -43,6 +44,15 @@ function Shell() {
           <button className={`seg-btn${view === 'demo' ? ' on' : ''}`} onClick={() => setView('demo')}>Demo</button>
         </div>
         <div className="hspacer" />
+        {/* Pitch sits at the right of the ribbon, immediately left of the mode
+            tag: the deck opens the room, then we cross to Dispatch/Demo. */}
+        <button
+          className={`pitch-btn${view === 'pitch' ? ' on' : ''}`}
+          onClick={() => setView(view === 'pitch' ? 'dispatch' : 'pitch')}
+          title="Pitch deck"
+        >
+          Pitch
+        </button>
         <span className={`mode-tag${live ? ' live' : ''}`} title={modeTip}>{live ? 'Live' : 'Sim'}</span>
         <button className="icon-btn mgr" onClick={() => setMgrOpen((o) => !o)} title="Manager console" aria-label="Manager console">
           <MessageSquare />{appliedPatchCount > 0 && <span className="badge">{appliedPatchCount}</span>}
@@ -59,6 +69,7 @@ function Shell() {
         </>
       )}
       {view === 'demo' && <DemoStage />}
+      {view === 'pitch' && <PitchStage />}
 
       {intakeOpen && <IntakeModal onClose={() => setIntakeOpen(false)} />}
 

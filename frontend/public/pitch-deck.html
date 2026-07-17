@@ -1,0 +1,558 @@
+<title>Donna — Pitch Deck</title>
+<style>
+  :root {
+    --ground:      #0B0F14;
+    --panel:       #121A22;
+    --panel-2:     #0E151C;
+    --rule:        #26313D;
+    --rule-soft:   #1B242E;
+
+    --ink:         #E8EDF2;
+    --ink-mid:     #A8B6C4;
+    --ink-mute:    #6B7A88;
+
+    --amber:       #FF9F1C;
+    --amber-dim:   #B36E12;
+
+    --recovered:   #35D07F;
+    --spoiled:     #E5484D;
+
+    --display: "Avenir Next Condensed", "Helvetica Neue Condensed", "Arial Narrow", system-ui, sans-serif;
+    --body:    "Avenir Next", "Avenir", "Helvetica Neue", system-ui, sans-serif;
+    --mono:    ui-monospace, "SF Mono", "Menlo", monospace;
+  }
+
+  html, body {
+    margin: 0; height: 100%;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    overflow: hidden;
+  }
+
+  #stage { position: fixed; inset: 0; display: grid; place-items: center; }
+  #scaler { width: 1280px; height: 720px; position: relative; transform-origin: center center; }
+
+  .slide {
+    position: absolute; inset: 0;
+    padding: 84px 96px 72px;
+    box-sizing: border-box;
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    background:
+      radial-gradient(120% 100% at 88% 4%, rgba(255,159,28,0.045) 0%, transparent 55%),
+      var(--ground);
+  }
+  .slide.on { display: flex; }
+  /* Slides carrying a source footer reserve room for it, so centred content never rides over it. */
+  .slide.cited { padding-bottom: 116px; }
+
+  /* ---- motion ---- */
+  .r { opacity: 0; transform: translateY(16px); }
+  .slide.on .r { animation: rise 420ms cubic-bezier(.2,.7,.3,1) forwards; animation-delay: var(--d, 0ms); }
+  @keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+
+  .slide.on .draw { animation: draw 480ms cubic-bezier(.2,.7,.3,1) forwards; animation-delay: var(--d, 0ms); }
+  @keyframes draw { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: 11.5px;
+    letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--amber); margin: 0 0 34px;
+  }
+
+  h2 {
+    font-family: var(--display);
+    font-size: 82px; line-height: 0.98;
+    font-weight: 600; letter-spacing: -0.018em;
+    margin: 0; text-wrap: balance; max-width: 17ch;
+  }
+  h2.sm { font-size: 66px; max-width: 20ch; }
+  h2.xs { font-size: 54px; max-width: 24ch; }
+
+  .say {
+    font-size: 23px; line-height: 1.5;
+    color: var(--ink-mid); margin: 30px 0 0; max-width: 50ch;
+  }
+  .say strong { color: var(--ink); font-weight: 600; }
+  .say em { font-style: normal; color: var(--amber); }
+  .say.punch { color: var(--ink); font-size: 25px; }
+
+  .cite {
+    position: absolute; left: 96px; right: 96px; bottom: 32px;
+    font-family: var(--mono); font-size: 10px; line-height: 1.5;
+    color: #3D4956; letter-spacing: 0.04em;
+  }
+
+  .rail { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--amber); transition: width 400ms cubic-bezier(.4,0,.2,1); }
+  #counter {
+    position: fixed; right: 22px; bottom: 15px;
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.14em;
+    color: #3D4956; font-variant-numeric: tabular-nums; z-index: 5;
+  }
+  #hint {
+    position: fixed; left: 22px; bottom: 15px;
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em;
+    color: #2A3440; z-index: 5; transition: opacity 500ms;
+  }
+
+  /* ---- hero numbers ---- */
+  .hero {
+    font-family: var(--display);
+    font-size: 250px; line-height: 0.82;
+    font-weight: 600; letter-spacing: -0.035em;
+    color: var(--amber); font-variant-numeric: tabular-nums;
+    margin: 0;
+  }
+  .hero.md { font-size: 150px; }
+  .hero .u { font-size: 0.45em; letter-spacing: -0.02em; }
+  .hero-note {
+    font-family: var(--mono); font-size: 11.5px;
+    letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--amber-dim); margin: 16px 0 0; line-height: 1.6;
+  }
+  .hero-note.ink { color: var(--ink-mute); }
+
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 72px; align-items: center; }
+
+  /* ---- title ---- */
+  .wordmark {
+    font-family: var(--display); font-size: 186px; font-weight: 600;
+    letter-spacing: -0.035em; line-height: 0.82; margin: 0 0 36px;
+  }
+  .wordmark .dot { color: var(--amber); }
+  .tagline {
+    font-family: var(--display); font-size: 50px; font-weight: 500;
+    line-height: 1.1; color: var(--ink); max-width: 20ch;
+    margin: 0; letter-spacing: -0.01em;
+  }
+  .tagline .turn { color: var(--amber); }
+
+  /* ---- before / after ---- */
+  .lane { position: relative; padding-top: 26px; }
+  .lane .topline {
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 1px; background: var(--rule); transform-origin: left center;
+  }
+  .lane.donna .topline { height: 2px; background: var(--amber); }
+  .lane .who {
+    font-family: var(--mono); font-size: 11px;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--ink-mute); display: block; height: 40px;
+  }
+  /* Donna is the name they should leave with. It gets to be loud. */
+  .lane.donna .who {
+    font-family: var(--display);
+    font-size: 42px; font-weight: 600;
+    letter-spacing: -0.01em; text-transform: none;
+    color: var(--amber); line-height: 1;
+  }
+  .slide.on .lane.donna .who {
+    animation: nameIn 560ms cubic-bezier(.2,.8,.28,1) forwards;
+    animation-delay: var(--d, 0ms);
+    opacity: 0;
+  }
+  @keyframes nameIn {
+    0%   { opacity: 0; transform: translateY(10px) scale(0.9); text-shadow: none; }
+    55%  { opacity: 1; transform: translateY(0) scale(1.04); text-shadow: 0 0 34px rgba(255,159,28,0.65); }
+    100% { opacity: 1; transform: scale(1); text-shadow: 0 0 16px rgba(255,159,28,0.22); }
+  }
+  .lane .dur {
+    font-family: var(--display); font-size: 78px; font-weight: 600;
+    line-height: 1; margin: 10px 0 22px; letter-spacing: -0.02em;
+    color: var(--ink-mute);
+  }
+  .lane.donna .dur { color: var(--amber); }
+
+  /* ---- bullets ---- */
+  /* The marker is positioned, not a flex item — otherwise inline <strong>/<em>
+     become flex items themselves and the list gap tears the sentence apart. */
+  ul.beats, ul.mini {
+    list-style: none; margin: 0; padding: 0;
+    display: flex; flex-direction: column;
+  }
+  ul.beats { margin-top: 34px; gap: 18px; }
+  ul.mini  { gap: 12px; }
+  ul.beats li, ul.mini li {
+    display: block; position: relative;
+    color: var(--ink-mid); line-height: 1.45;
+  }
+  ul.beats li { font-size: 21px; max-width: 46ch; padding-left: 22px; }
+  ul.mini  li { font-size: 17.5px; max-width: 28ch; padding-left: 19px; }
+  ul.beats li::before, ul.mini li::before {
+    content: ""; position: absolute; left: 0;
+    border-radius: 50%; background: var(--amber);
+  }
+  ul.beats li::before { width: 6px; height: 6px; top: 11px; }
+  ul.mini  li::before { width: 5px; height: 5px; top: 9px; }
+  .lane:not(.donna) ul.mini li::before { background: var(--rule); }
+  ul.beats strong, ul.mini strong { color: var(--ink); font-weight: 600; }
+  ul.beats em, ul.mini em { font-style: normal; color: var(--amber); }
+
+  /* ---- memory vignettes ---- */
+  .vig { position: relative; padding: 4px 0 4px 26px; }
+  .vig .edge {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    width: 2px; background: var(--amber); transform-origin: top center;
+  }
+  .slide.on .vig .edge { animation: growY 440ms cubic-bezier(.2,.7,.3,1) forwards; animation-delay: var(--d, 0ms); transform: scaleY(0); }
+  @keyframes growY { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+  .vig.neg .edge { background: var(--spoiled); }
+  .vig .said { font-family: var(--mono); font-size: 14.5px; line-height: 1.7; color: var(--ink); margin-bottom: 18px; }
+  .vig .said .spk { color: var(--ink-mute); }
+  .vig .did { font-size: 18px; line-height: 1.5; color: var(--ink-mid); max-width: 30ch; }
+  .vig .tag {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--recovered);
+    display: block; margin-bottom: 8px;
+  }
+  .vig.neg .tag { color: var(--spoiled); }
+
+  blockquote {
+    position: relative; margin: 0; padding: 0 0 0 22px;
+    font-family: var(--display); font-size: 25px; line-height: 1.26;
+    font-weight: 500; color: var(--ink); letter-spacing: -0.008em; max-width: 24ch;
+  }
+  blockquote .edge { position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--amber); }
+
+  /* ================= the live record card ================= */
+  .demo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: start; margin-top: 34px; }
+
+  .tx { font-family: var(--mono); font-size: 13.5px; line-height: 1.6; display: flex; flex-direction: column; gap: 14px; min-height: 300px; }
+  .tx-line { opacity: 0; transform: translateY(8px); transition: opacity 380ms, transform 380ms; }
+  .tx-line.in { opacity: 1; transform: none; }
+  .tx-line .spk { color: var(--ink-mute); letter-spacing: 0.08em; font-size: 10.5px; text-transform: uppercase; display: block; margin-bottom: 3px; }
+  .tx-line.donna .spk { color: var(--amber-dim); }
+  .tx-line .txt { color: var(--ink-mid); }
+  .tx-line.donna .txt { color: var(--ink); }
+
+  .live {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--spoiled); margin-bottom: 4px;
+  }
+  .live .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--spoiled); }
+  .slide.on .live .dot { animation: blink 1.4s ease-in-out infinite; }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+  .card { background: var(--panel); border: 1px solid var(--rule-soft); }
+  .card-head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 18px; border-bottom: 1px solid var(--rule-soft);
+    background: var(--panel-2);
+  }
+  .card-head .id { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; color: var(--ink-mute); }
+  .card-head .ttl { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; color: var(--amber); font-variant-numeric: tabular-nums; }
+  .row {
+    display: grid; grid-template-columns: 116px 1fr; gap: 16px;
+    padding: 13px 18px; border-bottom: 1px solid var(--rule-soft);
+    align-items: baseline;
+  }
+  .row:last-child { border-bottom: 0; }
+  .row .f {
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--ink-mute);
+  }
+  .row .v { font-family: var(--mono); font-size: 13.5px; color: var(--ink); line-height: 1.45; }
+  .row .v .muted { color: var(--ink-mute); }
+  .row .v .struck { text-decoration: line-through; color: var(--ink-mute); }
+  .row .v .bad { color: var(--spoiled); }
+  .row .v .good { color: var(--recovered); }
+  .row .v .work { color: var(--amber); }
+  .row.flash { animation: flash 900ms ease-out; }
+  @keyframes flash { 0% { background: rgba(255,159,28,0.20); } 100% { background: transparent; } }
+  .row.flash-good { animation: flashGood 900ms ease-out; }
+  @keyframes flashGood { 0% { background: rgba(53,208,127,0.20); } 100% { background: transparent; } }
+  .row.flash-bad { animation: flashBad 900ms ease-out; }
+  @keyframes flashBad { 0% { background: rgba(229,72,77,0.18); } 100% { background: transparent; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .r, .slide.on .r { animation: none !important; opacity: 1 !important; transform: none !important; }
+    .draw, .slide.on .draw, .vig .edge, .slide.on .vig .edge,
+    .slide.on .lane.donna .who { animation: none !important; transform: none !important; opacity: 1 !important; }
+    .rail { transition: none !important; }
+    .tx-line { transition: none !important; }
+    .row.flash, .row.flash-good, .row.flash-bad { animation: none !important; }
+    .slide.on .live .dot { animation: none !important; }
+  }
+</style>
+
+<div id="stage">
+  <div id="scaler">
+
+    <!-- 1 · Title ......................................................... -->
+    <section class="slide on">
+      <p class="eyebrow r" style="--d:40ms">Project Donna</p>
+      <h1 class="wordmark r" style="--d:120ms">Donna<span class="dot">.</span></h1>
+      <p class="tagline r" style="--d:320ms">Nobody wastes food on purpose.<br><span class="turn">They just run out of time.</span></p>
+    </section>
+
+    <!-- 2 · The problem .................................................. -->
+    <section class="slide">
+      <p class="eyebrow r" style="--d:0ms">The problem</p>
+      <div class="split">
+        <div>
+          <p class="hero r" style="--d:80ms"><span data-count="48">48</span></p>
+          <p class="hero-note r" style="--d:420ms">hours on the clock</p>
+        </div>
+        <div>
+          <h2 class="sm r" style="--d:140ms">The food has a deadline. The phone call doesn't care.</h2>
+          <ul class="beats">
+            <li class="r" style="--d:280ms">200 lbs of fresh beef. <strong>Two days.</strong></li>
+            <li class="r" style="--d:340ms">Somewhere out there: a pantry with a working freezer and room today.</li>
+            <li class="r" style="--d:400ms">A human is about to spend the afternoon <em>dialing to find it</em>.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 · The gap IS the market ........................................ -->
+    <section class="slide cited">
+      <p class="eyebrow r" style="--d:0ms">The gap</p>
+      <h2 class="xs r" style="--d:60ms">The food isn't missing. It's stranded.</h2>
+      <div class="split" style="margin-top:44px;">
+        <div>
+          <p class="hero md r" style="--d:140ms"><span data-count="13">13</span><span class="u">%</span></p>
+          <p class="hero-note r" style="--d:300ms">of donatable food<br>gets donated today</p>
+        </div>
+        <div>
+          <p class="hero md r" style="--d:200ms">$<span data-count="595">595</span><span class="u">M</span></p>
+          <p class="hero-note ink r" style="--d:300ms">a year — what ReFED models<br>for closing that gap</p>
+        </div>
+      </div>
+      <ul class="beats" style="margin-top:40px;">
+        <li class="r" style="--d:380ms">Four in five tons of surplus food are <em>perishable</em>.</li>
+        <li class="r" style="--d:430ms">Transportation is the <strong>#1 barrier to donation</strong> — in every sector surveyed.</li>
+        <li class="r" style="--d:480ms"><strong>That's a routing failure. And ReFED already priced fixing it.</strong></li>
+      </ul>
+      <div class="cite r" style="--d:540ms">ReFED, 2026 U.S. Food Waste Report · ReFED, "How Technology is Empowering Food Rescue" · BSR for the Food Waste Reduction Alliance, 2014</div>
+    </section>
+
+    <!-- 4 · What Donna does .............................................. -->
+    <section class="slide">
+      <p class="eyebrow r" style="--d:0ms">What Donna does</p>
+      <h2 class="sm r" style="--d:60ms;">Ranked before the first ring.</h2>
+      <div class="split" style="margin-top:48px;">
+        <div class="lane">
+          <div class="topline draw" style="--d:140ms"></div>
+          <span class="who r" style="--d:180ms">A person</span>
+          <div class="dur r" style="--d:220ms">Hours</div>
+          <ul class="mini">
+            <li class="r" style="--d:270ms">Dial. Wait for a callback.</li>
+            <li class="r" style="--d:310ms">Hear no.</li>
+            <li class="r" style="--d:350ms">Reopen the spreadsheet. Dial again.</li>
+          </ul>
+        </div>
+        <div class="lane donna">
+          <div class="topline draw" style="--d:480ms"></div>
+          <span class="who" style="--d:530ms">Donna</span>
+          <div class="dur r" style="--d:660ms">Minutes</div>
+          <ul class="mini">
+            <li class="r" style="--d:720ms">Scores every pantry <strong>before</strong> dialing — clock, freezer, capacity, need.</li>
+            <li class="r" style="--d:760ms">Hears no, calls the next <em>instantly</em>.</li>
+            <li class="r" style="--d:800ms">Runs every donation at once.</li>
+          </ul>
+        </div>
+      </div>
+      <p class="say punch r" style="--d:880ms; margin-top:40px; max-width:60ch;"><strong>Not "who might take this." Who is the single best call to make right now.</strong></p>
+    </section>
+
+    <!-- 5 · Memory ....................................................... -->
+    <section class="slide">
+      <p class="eyebrow r" style="--d:0ms">The part a human can't do</p>
+      <h2 class="sm r" style="--d:60ms; margin-bottom:52px;">Every call makes the next one better.</h2>
+      <div class="split">
+        <div class="vig">
+          <div class="edge" style="--d:160ms"></div>
+          <div class="said r" style="--d:200ms"><span class="spk">Donna:</span> "Since you have refrigeration —"<br><span class="spk">Pantry:</span> "We don't have a refrigerator."</div>
+          <div class="did r" style="--d:280ms"><span class="tag">Corrected on the call</span>The record was wrong. It isn't anymore.</div>
+        </div>
+        <div class="vig neg">
+          <div class="edge" style="--d:400ms"></div>
+          <div class="said r" style="--d:440ms"><span class="spk">Donor:</span> "48 hours left on this beef."<br><span class="spk">Pantry:</span> "It arrived spoiled."</div>
+          <div class="did r" style="--d:520ms"><span class="tag">Scored against the donor</span>Their next "48 hours" gets the skepticism it earned.</div>
+        </div>
+      </div>
+      <p class="say punch r" style="--d:640ms; margin-top:48px; max-width:60ch;"><strong>A person would have to hang up, remember, find the row, and edit it — for every call, all day. That's why it never happens.</strong></p>
+    </section>
+
+    <!-- 6 · Demo ......................................................... -->
+    <section class="slide" id="demo-slide">
+      <p class="eyebrow r" style="--d:0ms">Live demo</p>
+      <h2 class="xs r" style="--d:60ms">Watch the record change while she's still talking.</h2>
+      <div class="demo-grid">
+        <div class="r" style="--d:180ms">
+          <span class="live"><span class="dot"></span>Call in progress</span>
+          <div class="tx" id="tx"></div>
+        </div>
+        <div class="card r" style="--d:240ms">
+          <div class="card-head">
+            <span class="id">DONATION · 2291</span>
+            <span class="ttl" id="d-clock">47:12 LEFT</span>
+          </div>
+          <div class="row"><span class="f">Item</span><span class="v">200 lbs · fresh beef</span></div>
+          <div class="row" id="row-status"><span class="f">Status</span><span class="v" id="d-status"><span class="muted">—</span></span></div>
+          <div class="row" id="row-pantry"><span class="f">Pantry</span><span class="v" id="d-pantry"><span class="muted">—</span></span></div>
+          <div class="row" id="row-cold"><span class="f">Cold storage</span><span class="v" id="d-cold"><span class="muted">—</span></span></div>
+          <div class="row" id="row-out"><span class="f">Outcome</span><span class="v" id="d-out"><span class="muted">—</span></span></div>
+        </div>
+      </div>
+      <p class="say punch r" style="--d:320ms; margin-top:30px; max-width:64ch;"><strong>Stop it at any point.</strong> Nothing dispatches without a person able to say no.</p>
+    </section>
+
+    <!-- 7 · Close ........................................................ -->
+    <section class="slide">
+      <p class="eyebrow r" style="--d:0ms">Donna</p>
+      <h2 class="r" style="--d:80ms">The food already exists. The clock is the only thing in the way.</h2>
+      <p class="say r" style="--d:300ms; font-size:26px;">Donna takes the hours out of the phone tree — and remembers everything she learns on the way.</p>
+    </section>
+
+  </div>
+</div>
+
+<div id="counter">01 / 07</div>
+<div id="hint">← → to navigate</div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const counter = document.getElementById('counter');
+  const hint = document.getElementById('hint');
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let i = 0;
+
+  slides.forEach(s => {
+    const r = document.createElement('div');
+    r.className = 'rail';
+    s.appendChild(r);
+  });
+  const rails = Array.from(document.querySelectorAll('.rail'));
+
+  /* ---- hero count-up ---- */
+  function countUp(el) {
+    const target = parseInt(el.dataset.count, 10);
+    if (reduced) { el.textContent = target; return; }
+    const dur = 560, start = performance.now();
+    el.textContent = '0';
+    (function tick(now) {
+      const p = Math.min(1, ((now || performance.now()) - start) / dur);
+      el.textContent = Math.round(target * (1 - Math.pow(1 - p, 3)));
+      if (p < 1) requestAnimationFrame(tick);
+    })(start);
+  }
+
+  /* ================= demo: the record updating live ================= */
+  const DEMO_SLIDE = document.getElementById('demo-slide');
+  let demoTimers = [];
+  let countTimers = [];
+
+  const $ = id => document.getElementById(id);
+
+  function clearDemo() {
+    demoTimers.forEach(clearTimeout);
+    demoTimers = [];
+    $('tx').innerHTML = '';
+    $('d-status').innerHTML = '<span class="muted">—</span>';
+    $('d-pantry').innerHTML = '<span class="muted">—</span>';
+    $('d-cold').innerHTML = '<span class="muted">—</span>';
+    $('d-out').innerHTML = '<span class="muted">—</span>';
+    ['row-status','row-pantry','row-cold','row-out'].forEach(r =>
+      $(r).classList.remove('flash','flash-good','flash-bad'));
+  }
+
+  function say(who, text, donna) {
+    const el = document.createElement('div');
+    el.className = 'tx-line' + (donna ? ' donna' : '');
+    el.innerHTML = '<span class="spk">' + who + '</span><span class="txt">' + text + '</span>';
+    $('tx').appendChild(el);
+    requestAnimationFrame(() => el.classList.add('in'));
+  }
+
+  function set(rowId, valId, html, kind) {
+    $(valId).innerHTML = html;
+    const row = $(rowId);
+    row.classList.remove('flash','flash-good','flash-bad');
+    void row.offsetWidth;
+    row.classList.add(kind === 'good' ? 'flash-good' : kind === 'bad' ? 'flash-bad' : 'flash');
+  }
+
+  /* rank → call → the record is wrong → correct it → redial → placed. */
+  const SCRIPT = [
+    [   0, () => set('row-status','d-status','<span class="work">Ranking 42 pantries…</span>') ],
+    [ 700, () => set('row-status','d-status','<span class="work">Calling…</span>') ],
+    [ 800, () => set('row-pantry','d-pantry','St. Anthony\'s · 2.1 mi') ],
+    [ 900, () => set('row-cold','d-cold','Freezer <span class="good">✓</span> <span class="muted">(on record)</span>') ],
+    [1500, () => say('Donna', '"I have 200 lbs of fresh beef, good for 48 hours. Since you have refrigeration —"', true) ],
+    [3600, () => say('St. Anthony\'s', '"We don\'t have a refrigerator."') ],
+    [4700, () => set('row-cold','d-cold','<span class="struck">Freezer ✓</span> <span class="bad">None — corrected on call</span>', 'bad') ],
+    [5400, () => set('row-status','d-status','<span class="bad">Declined</span> <span class="muted">· record updated</span>', 'bad') ],
+    [6300, () => say('Donna', '"Understood — thank you. I\'ll update our records."', true) ],
+    [7300, () => set('row-status','d-status','<span class="work">Redialing next best…</span>') ],
+    [7400, () => set('row-pantry','d-pantry','Glide Memorial · 3.4 mi') ],
+    [7500, () => set('row-cold','d-cold','Freezer <span class="good">✓</span> <span class="muted">(verified 2d ago)</span>') ],
+    [8300, () => say('Donna', '"200 lbs of fresh beef, 47 hours left. Can you take it today?"', true) ],
+    [10300, () => say('Glide Memorial', '"Yes — bring it by four."') ],
+    [11200, () => set('row-status','d-status','<span class="good">Accepted</span>', 'good') ],
+    [11700, () => set('row-out','d-out','<span class="good">PLACED</span> <span class="muted">· 4 min · 0 human calls</span>', 'good') ],
+  ];
+
+  function runDemo() {
+    clearDemo();
+    if (reduced) {
+      $('d-status').innerHTML = '<span class="good">Accepted</span>';
+      $('d-pantry').innerHTML = 'Glide Memorial · 3.4 mi';
+      $('d-cold').innerHTML = '<span class="struck">Freezer ✓</span> <span class="bad">None at St. Anthony\'s — corrected on call</span>';
+      $('d-out').innerHTML = '<span class="good">PLACED</span> <span class="muted">· 4 min · 0 human calls</span>';
+      say('Donna', '"Since you have refrigeration —"', true);
+      say('St. Anthony\'s', '"We don\'t have a refrigerator."');
+      say('Glide Memorial', '"Yes — bring it by four."');
+      return;
+    }
+    SCRIPT.forEach(([t, fn]) => demoTimers.push(setTimeout(fn, t + 340)));
+    demoTimers.push(setTimeout(runDemo, 16500));
+  }
+
+  /* ---- navigation ---- */
+  function show(n) {
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s, k) => s.classList.toggle('on', k === i));
+
+    const cur = slides[i];
+    cur.querySelectorAll('.r, .draw, .edge, .who').forEach(el => {
+      el.style.animation = 'none';
+      void el.offsetWidth;
+      el.style.animation = '';
+    });
+
+    countTimers.forEach(clearTimeout);
+    countTimers = [];
+    cur.querySelectorAll('[data-count]').forEach(el => {
+      const d = parseInt(el.closest('.r')?.style.getPropertyValue('--d') || '0', 10);
+      countTimers.push(setTimeout(() => countUp(el), d));
+    });
+
+    if (cur === DEMO_SLIDE) runDemo(); else clearDemo();
+
+    counter.textContent = String(i + 1).padStart(2, '0') + ' / ' + String(slides.length).padStart(2, '0');
+    requestAnimationFrame(() => { rails[i].style.width = ((i + 1) / slides.length * 100) + '%'; });
+  }
+
+  function fit() {
+    const s = Math.min(window.innerWidth / 1280, window.innerHeight / 720);
+    document.getElementById('scaler').style.transform = 'scale(' + s + ')';
+  }
+
+  window.addEventListener('resize', fit);
+  window.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') { show(i + 1); e.preventDefault(); }
+    if (e.key === 'ArrowLeft' || e.key === 'PageUp') { show(i - 1); e.preventDefault(); }
+    if (e.key === 'Home') show(0);
+    if (e.key === 'End') show(slides.length - 1);
+    if (e.key === 'f') document.documentElement.requestFullscreen?.();
+    hint.style.opacity = '0';
+  });
+
+  fit();
+  show(0);
+  setTimeout(() => { hint.style.opacity = '0'; }, 6000);
+</script>
