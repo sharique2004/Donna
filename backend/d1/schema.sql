@@ -76,6 +76,15 @@ CREATE TABLE IF NOT EXISTS config (
 -- both advance the machine, double-dialling the next pantry. The conditional
 -- UPDATE collapses that to one winner inside a single statement.
 -- ---------------------------------------------------------------------------
+-- `directed` is a real column, not a JSON field, because this table is the one
+-- exception to the shape note above: calls have no `json` column to hide an
+-- optional field in, so anything CallRecord carries must be spelled out here or
+-- it is silently dropped on write. It was: the flag was added to the type and to
+-- dispatchMachine, and on D1 every directed call read back as undefined, so a
+-- declined coordinator-directed call advanced to the next ranked pantry — the
+-- exact behaviour the flag exists to prevent.
+--
+-- SQLite has no boolean: 0/1, defaulting 0 (an unflagged call is automatic).
 CREATE TABLE IF NOT EXISTS calls (
   call_id         TEXT PRIMARY KEY,
   donation_id     TEXT NOT NULL,
@@ -83,8 +92,21 @@ CREATE TABLE IF NOT EXISTS calls (
   recipient_id    TEXT NOT NULL,
   candidate_index INTEGER NOT NULL,
   placed_at       TEXT NOT NULL,
-  handled_at      TEXT
+  handled_at      TEXT,
+  directed        INTEGER NOT NULL DEFAULT 0
 );
+
+-- MIGRATION — existing databases only.
+--
+-- Everything above is CREATE TABLE IF NOT EXISTS, so re-running this file
+-- against a database that already has `calls` is a no-op and will NOT add the
+-- column. Any deployment created before this commit needs the ALTER once:
+--
+--   wrangler d1 execute donna --remote --command \
+--     "ALTER TABLE calls ADD COLUMN directed INTEGER NOT NULL DEFAULT 0"
+--
+-- It is safe on rows already there (they are automatic calls, which is 0) and
+-- errors with "duplicate column name" if applied twice — loud, not harmful.
 
 -- The cron stale sweep asks: unhandled AND placed before X. Leading with
 -- handled_at means the (tiny) unhandled set is the only part scanned, even once
