@@ -42,7 +42,7 @@ LLM_PROVIDER = "gemini"
 GEMINI_MODEL = "gemini-2.5-flash"
 DB_PROVIDER = "d1"
 VOICE_PROVIDER = "vapi"
-FOOD_BANK_NAME = ""
+FOOD_BANK_NAME = "San Marin Food Bank"
 # The Worker's own origin. VAPI posts call reports here; unset means no call can
 # ever resolve — it would sit until the cron sweep writes it off as no_answer.
 PUBLIC_WEBHOOK_URL = "https://api.vivek-patel.com"

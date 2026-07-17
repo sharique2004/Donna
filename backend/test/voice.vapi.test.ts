@@ -218,10 +218,14 @@ describe('VapiVoice keyless behavior', () => {
       expect(p).toMatch(/you are an AI assistant/);
     });
 
-    it('uses the configured food bank, degrading to the honest generic when unset', async () => {
-      // FOOD_BANK_NAME resolves at module load, so this asserts the default the
-      // deployed Worker actually runs today: wrangler.toml sets FOOD_BANK_NAME="".
-      expect(await capturePrompt()).toContain('the food bank');
+    it('names the food bank as a bare proper noun, never doubling the article', async () => {
+      // FOOD_BANK_NAME resolves at module load, so this asserts the default a
+      // deployment falls back to when the var is unset.
+      const p = await capturePrompt();
+      expect(p).toContain('San Marin Food Bank');
+      // The old default was the article-prefixed 'the food bank', which rendered
+      // "dispatcher for the the food bank" and taught the model to say it aloud.
+      expect(p).not.toMatch(/the the/i);
     });
   });
 

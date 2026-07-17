@@ -104,7 +104,9 @@ export function loadEnv(env: NodeJS.ProcessEnv = process.env): EnvConfig {
     liveCallPhoneOverride: (env.LIVE_CALL_PHONE_OVERRIDE ?? '').trim(),
     publicWebhookUrl: (env.PUBLIC_WEBHOOK_URL ?? '').trim().replace(/\/+$/, ''),
     vapiWebhookSecret: (env.VAPI_WEBHOOK_SECRET ?? '').trim(),
-    foodBankName: (env.FOOD_BANK_NAME ?? '').trim() || 'the food bank',
+    // Must stay a bare proper noun: prompts interpolate it after an article
+    // ("dispatcher for ${name}"), so a leading "the" here renders "the the".
+    foodBankName: (env.FOOD_BANK_NAME ?? '').trim() || 'San Marin Food Bank',
     port: Number.parseInt(env.PORT ?? '8787', 10) || 8787,
   };
 }
