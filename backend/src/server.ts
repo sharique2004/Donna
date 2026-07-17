@@ -19,7 +19,11 @@ import type { CallOutcome } from './core/types.js';
 import { managerChat } from './core/agents/manager.js';
 import { explainRanking } from './core/scoring/explain.js';
 import { simulateAB } from './core/scoring/equity.js';
-import { parseWebhook } from './core/voice/vapi.js';
+import { parseWebhook, resolveCall } from './core/voice/vapi.js';
+import { buildInboundAssistant, isInboundCall, transcriptToRawText } from './core/voice/inbound.js';
+import {
+  appendLiveTranscript, clearLiveTranscript, getLiveTranscript, listLiveCalls,
+} from './core/voice/liveTranscript.js';
 import { CANNED_SCENARIO } from './seed/scenarios.js';
 
 // ---------------------------------------------------------------------------
@@ -255,6 +259,47 @@ function buildApp(resolve: Resolver): Hono {
     }
   });
 
+  // ---- triage gate (PRD §10) ----------------------------------------------
+  // The human decision point: an inbound donation sits at `awaiting_triage`
+  // until a coordinator approves it here. Unlike /dispatch above, this returns
+  // immediately (202) and runs the call loop in the background — a dispatch can
+  // take minutes of real phone calls, and the dashboard has to watch it happen
+  // rather than stare at one hanging request.
+  app.post('/api/donations/:id/approve', async (c) => {
+    const id = c.req.param('id');
+    try {
+      const deps = await resolve();
+      const existing = await deps.store.getDonation(id);
+      if (!existing) return c.json({ error: 'donation not found' }, 404);
+      if (existing.status === 'dispatching') {
+        return c.json({ error: 'already dispatching' }, 409);
+      }
+      if (existing.status === 'resolved') {
+        return c.json({ error: 'already resolved' }, 409);
+      }
+
+      existing.status = 'dispatching';
+      await deps.store.saveDonation(existing);
+
+      // Fire-and-forget: the loop persists its own progress as each call lands,
+      // so the UI follows along via GET /api/donations/:id. Errors are recorded
+      // rather than thrown into a request nobody is holding open any more.
+      void dispatchDonation(id, deps).catch(async (e) => {
+        console.error('[dispatch] failed:', errMsg(e));
+        const d = await deps.store.getDonation(id);
+        if (d && d.status === 'dispatching') {
+          d.status = 'resolved';
+          d.donorMessage = `Dispatch failed: ${errMsg(e)}`;
+          await deps.store.saveDonation(d);
+        }
+      });
+
+      return c.json({ ok: true, status: 'dispatching', donationId: id }, 202);
+    } catch (e) {
+      return c.json({ error: errMsg(e) }, 500);
+    }
+  });
+
   // ---- directed / manual single-recipient calls (§G.3) --------------------
   // Map the pipeline's discriminated error to the right HTTP status.
   const directedStatus = (error: DirectedCallError): 404 | 409 =>
@@ -279,6 +324,17 @@ function buildApp(resolve: Resolver): Hono {
     } catch (e) {
       return c.json({ error: errMsg(e) }, 500);
     }
+  });
+
+  // ---- live call feed (stage dashboard) -----------------------------------
+  // Who is on the phone right now, and what is being said. Buffered in memory
+  // and polled; empty between calls.
+  app.get('/api/live', (c) => {
+    return c.json({ calls: listLiveCalls() });
+  });
+
+  app.get('/api/live/:callId', (c) => {
+    return c.json({ lines: getLiveTranscript(c.req.param('callId')) });
   });
 
   // §G.3.2 — human-logged manual call (recorded like an agent call, flagged manual).
@@ -455,18 +511,104 @@ function buildApp(resolve: Resolver): Hono {
   });
 
   // ---- VAPI webhook sink (live mode only) ---------------------------------
+  // This route is the far end of VapiVoice.placeCall: that call parks a promise
+  // in vapi.ts's `pending` map keyed by callId, and only resolveCall() here can
+  // complete it. Without this wiring every live call burns its 90s timeout and
+  // reports no_answer no matter what the recipient said.
   app.post('/api/vapi/webhook', async (c) => {
     if (ENV.voiceProvider !== 'vapi') {
       return c.json({ ok: true, ignored: true });
     }
+
+    // Shared secret, echoed by VAPI in X-Vapi-Secret (docs.vapi.ai, header is
+    // case-insensitive per Hono). Enforced only when configured, so localhost
+    // testing needs no secret — but a public tunnel without one lets anyone who
+    // finds the URL forge an "accepted" outcome.
+    if (ENV.vapiWebhookSecret) {
+      if (c.req.header('x-vapi-secret') !== ENV.vapiWebhookSecret) {
+        return c.json({ error: 'invalid or missing X-Vapi-Secret' }, 401);
+      }
+    }
+
     const body = await readBody(c);
     if (body === null) return c.json({ error: 'invalid JSON body' }, 400);
-    try {
-      const normalized = parseWebhook(body);
-      return c.json({ ok: true, normalized });
-    } catch (e) {
-      return c.json({ error: errMsg(e) }, 400);
+
+    const rawMsg = (((body as Record<string, unknown>).message ?? body) ?? {}) as Record<string, unknown>;
+    const msgType = String(rawMsg.type ?? '');
+    const call = (rawMsg.call ?? {}) as Record<string, unknown>;
+
+    // A donor is calling us. VAPI asks which assistant should answer and gives
+    // us 7.5s to reply, so this path stays static config — no store, no model.
+    if (msgType === 'assistant-request') {
+      return c.json({ assistant: buildInboundAssistant() });
     }
+
+    // Live captions: partial transcripts stream in while a call is in progress.
+    // Recorded against the call id so the dashboard can poll them mid-call.
+    if (msgType === 'transcript') {
+      const callId = String(call.id ?? '');
+      const role = String(rawMsg.role ?? '');
+      const text = String(rawMsg.transcript ?? '');
+      if (callId && text) {
+        appendLiveTranscript(callId, {
+          speaker: role === 'assistant' || role === 'bot' ? 'agent' : 'recipient',
+          text,
+        });
+      }
+      return c.json({ ok: true });
+    }
+
+    let normalized;
+    try {
+      normalized = parseWebhook(body);
+    } catch (e) {
+      // parseWebhook throws on any message type we don't act on. VAPI treats
+      // 4xx as "rejected" (no retry), so a 400 wouldn't cause a retry storm —
+      // but these are messages we deliberately ignore, not client errors, and
+      // 200 keeps them out of VAPI's webhook error dashboard.
+      return c.json({ ok: true, ignored: true, reason: errMsg(e) });
+    }
+
+    // false ⇒ no pending call for this id: server restarted mid-call, a
+    // duplicate delivery, or a call placed by another process. Nothing a retry
+    // could fix, so acknowledge rather than 5xx.
+    const matched = resolveCall(normalized);
+    if (matched) {
+      clearLiveTranscript(normalized.callId);
+      return c.json({ ok: true, matched, callId: normalized.callId });
+    }
+
+    // Not one of our outbound calls — a donor called US. Parse what they said
+    // into a donation and park it for human triage (never auto-dispatch: the
+    // whole point of the gate is that a person decides).
+    if (isInboundCall(call)) {
+      try {
+        const transcript = String(
+          ((rawMsg.artifact ?? {}) as Record<string, unknown>).transcript ?? '',
+        );
+        const rawText = transcriptToRawText(transcript);
+        if (!rawText) {
+          return c.json({ ok: true, ignored: true, reason: 'inbound call had no transcript' });
+        }
+        const deps = await resolve();
+        const donation = await ingestDonation(
+          {
+            channel: 'voice',
+            contact: String((call.customer as Record<string, unknown>)?.number ?? 'unknown'),
+            rawText,
+          },
+          deps,
+        );
+        donation.status = 'awaiting_triage';
+        await deps.store.saveDonation(donation);
+        clearLiveTranscript(normalized.callId);
+        return c.json({ ok: true, inbound: true, donationId: donation.id, items: donation.items.length });
+      } catch (e) {
+        return c.json({ ok: true, inbound: true, error: errMsg(e) });
+      }
+    }
+
+    return c.json({ ok: true, matched, callId: normalized.callId });
   });
 
   return app;

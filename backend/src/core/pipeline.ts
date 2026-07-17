@@ -93,6 +93,9 @@ export async function dispatchDonation(
       donation.items[i] = await dispatchItem(
         donation.items[i], donation, deps.store, deps.config, deps,
       );
+      // Persist per item so a watching dashboard sees each one resolve as it
+      // happens; dispatchItem also saves around each individual call attempt.
+      await deps.store.saveDonation(donation);
     }
   }
 

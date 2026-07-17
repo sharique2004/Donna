@@ -36,6 +36,19 @@ export interface DispatchDeps {
   config: AgentConfig;
 }
 
+/**
+ * Persist mid-dispatch progress. Best-effort by design: a failed write must
+ * never abort a dispatch that is placing real phone calls — the worst case is a
+ * dashboard that lags, not a donation that stalls with a pantry on the line.
+ */
+async function saveProgress(donation: Donation, store: MemoryStore): Promise<void> {
+  try {
+    await store.saveDonation(donation);
+  } catch (e) {
+    console.warn('[dispatch] progress save failed (continuing):', e instanceof Error ? e.message : e);
+  }
+}
+
 function genId(): string {
   const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
   if (c?.randomUUID) return c.randomUUID();
@@ -103,8 +116,24 @@ export async function dispatchItem(
       };
     }
 
-    const attempt = await deps.voice.placeCall(offer, recipient, item);
+    // Publish "dialing X" BEFORE the call so a polling dashboard sees it while
+    // the phone is actually ringing. dispatchDonation only used to persist once
+    // the entire run finished, which left the UI blind for minutes.
+    item.dialing = {
+      recipientId: recipient.id,
+      recipientName: recipient.name,
+      startedAt: new Date().toISOString(),
+    };
+    await saveProgress(donation, store);
+
+    let attempt: CallAttempt;
+    try {
+      attempt = await deps.voice.placeCall(offer, recipient, item);
+    } finally {
+      item.dialing = undefined;
+    }
     item.attempts.push(attempt);
+    await saveProgress(donation, store);
 
     const event: HistoryEvent = {
       id: genId(),

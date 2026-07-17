@@ -6,12 +6,11 @@ import { IntakeModal } from './components/IntakeModal';
 import { MapView } from './components/MapView';
 import { DetailPanel } from './components/DetailPanel';
 import { NetworkPanel } from './components/NetworkPanel';
-import { EquityTab } from './components/EquityTab';
-import { DemoPage } from './components/DemoPage';
+import { DemoStage } from './components/DemoStage';
 import { ManagerDrawer } from './components/ManagerDrawer';
 import { MessageSquare, RotateCcw } from './icons';
 
-type View = 'dispatch' | 'equity' | 'demo';
+type View = 'dispatch' | 'demo';
 
 export default function App(): React.JSX.Element {
   return (
@@ -23,7 +22,9 @@ export default function App(): React.JSX.Element {
 
 function Shell() {
   const { mode, reset, busy, toast, detailOpen, appliedPatchCount } = useDonna();
-  const [view, setView] = useState<View>('dispatch');
+  // Opens on the Demo view: on demo night the first thing anyone should see is
+  // the narrative, not the console.
+  const [view, setView] = useState<View>('demo');
   const [intakeOpen, setIntakeOpen] = useState(false);
   const [mgrOpen, setMgrOpen] = useState(false);
 
@@ -39,7 +40,6 @@ function Shell() {
         <span className="wordmark">Donna<span className="wm-dot">.</span></span>
         <div className="seg">
           <button className={`seg-btn${view === 'dispatch' ? ' on' : ''}`} onClick={() => setView('dispatch')}>Dispatch</button>
-          <button className={`seg-btn${view === 'equity' ? ' on' : ''}`} onClick={() => setView('equity')}>Equity</button>
           <button className={`seg-btn${view === 'demo' ? ' on' : ''}`} onClick={() => setView('demo')}>Demo</button>
         </div>
         <div className="hspacer" />
@@ -58,8 +58,7 @@ function Shell() {
           {detailOpen ? <DetailPanel /> : <NetworkPanel />}
         </>
       )}
-      {view === 'equity' && <EquityTab />}
-      {view === 'demo' && <DemoPage />}
+      {view === 'demo' && <DemoStage />}
 
       {intakeOpen && <IntakeModal onClose={() => setIntakeOpen(false)} />}
 

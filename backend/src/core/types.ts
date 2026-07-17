@@ -3,7 +3,15 @@ export type ItemCategory =
   | 'fresh_produce' | 'fruit' | 'canned' | 'dry_goods' | 'baked'
   | 'dairy' | 'meat' | 'prepared' | 'beverages' | 'other';
 export type ItemStatus = 'pending' | 'matched' | 'unplaceable';
-export type DonationStatus = 'received' | 'parsed' | 'scored' | 'dispatching' | 'resolved';
+/**
+ * `awaiting_triage` — parsed and scored, but NOT yet dispatched: it is waiting on
+ * a human to approve the calls (PRD §10). Inbound donations land here, and only
+ * POST /api/donations/:id/approve moves them on. The autopilot/confirm gate used
+ * to be enforced client-side only, which made it a UI courtesy rather than a
+ * guarantee; this status is what makes it real.
+ */
+export type DonationStatus =
+  | 'received' | 'parsed' | 'scored' | 'awaiting_triage' | 'dispatching' | 'resolved';
 export type RecipientType = 'pantry' | 'community_agency';
 export type Infrastructure = 'walk_in_fridge' | 'fridge' | 'freezer' | 'dry_storage' | 'loading_dock';
 export type CallOutcome = 'accepted' | 'declined' | 'no_answer';
@@ -21,6 +29,12 @@ export interface DonationItem {
   item: string; qtyLbs: number; category: ItemCategory;
   hoursToSpoil: number; needsRefrigeration: boolean;
   status: ItemStatus;
+  /**
+   * Set while a call to this recipient is ringing/connected, cleared when it
+   * ends. Lets the stage dashboard say "calling Bayview now" instead of waiting
+   * for the whole dispatch to finish before anything appears.
+   */
+  dialing?: { recipientId: string; recipientName: string; startedAt: string };
   matchedRecipientId?: string; resolutionReason?: string;
   attempts: CallAttempt[];
 }

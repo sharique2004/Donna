@@ -27,6 +27,44 @@ export interface EnvConfig {
   voiceProvider: VoiceProvider;
   vapiApiKey: string;
   vapiPhoneNumberId: string;
+  /**
+   * Demo safety valve. When set to an E.164 number, EVERY live outbound call is
+   * dialed to it instead of to the ranked recipient's real phone. The pipeline is
+   * untouched — intake, scoring, and the agent's choice of pantry all run for
+   * real, and the assistant still speaks as if calling the chosen recipient. Only
+   * the dial target is redirected, at the last inch.
+   *
+   * Unset ⇒ recipients' real phones are dialed. Set this for any demo or test
+   * run against the seeded network, whose numbers are fake (+1 415 555 01xx) but
+   * are NOT guaranteed unrouted.
+   */
+  liveCallPhoneOverride: string;
+  /**
+   * Public base URL VAPI posts call reports back to — the origin only, no path;
+   * `/api/vapi/webhook` is appended. An ngrok tunnel today, the deployed InsForge
+   * function later; swapping between them is an env change, not a code change.
+   *
+   * Unset ⇒ no `server` block on the assistant, so VAPI falls back to whatever
+   * account-level webhook is configured (today: none) and a live call can only
+   * ever resolve by hitting its 90s timeout.
+   */
+  publicWebhookUrl: string;
+  /**
+   * Shared secret echoed back by VAPI in the `X-Vapi-Secret` header. Set ⇒ the
+   * webhook route rejects any request that doesn't carry it. Unset ⇒ the route
+   * accepts unauthenticated posts, which is fine on localhost but means anyone
+   * who finds a public tunnel URL can forge an "accepted" outcome.
+   */
+  vapiWebhookSecret: string;
+  /**
+   * The organisation Donna says she works for, on every call.
+   *
+   * Must be an organisation the operator actually runs — the assistant states it
+   * as fact to donors and pantries. Left unset it degrades to the generic "the
+   * food bank", which is honest; what it must never be is a real food bank you
+   * are not.
+   */
+  foodBankName: string;
   port: number;
 }
 
@@ -77,6 +115,10 @@ export function loadEnv(env: NodeJS.ProcessEnv = process.env): EnvConfig {
     voiceProvider: pick(env.VOICE_PROVIDER, ['sim', 'vapi'] as const, 'sim'),
     vapiApiKey: env.VAPI_API_KEY ?? '',
     vapiPhoneNumberId: env.VAPI_PHONE_NUMBER_ID ?? '',
+    liveCallPhoneOverride: (env.LIVE_CALL_PHONE_OVERRIDE ?? '').trim(),
+    publicWebhookUrl: (env.PUBLIC_WEBHOOK_URL ?? '').trim().replace(/\/+$/, ''),
+    vapiWebhookSecret: (env.VAPI_WEBHOOK_SECRET ?? '').trim(),
+    foodBankName: (env.FOOD_BANK_NAME ?? '').trim() || 'the food bank',
     port: Number.parseInt(env.PORT ?? '8787', 10) || 8787,
   };
 }

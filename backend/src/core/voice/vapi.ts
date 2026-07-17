@@ -20,7 +20,46 @@ import { ENV } from '../../config.js';
  */
 
 const VAPI_BASE = 'https://api.vapi.ai';
-const CALL_TIMEOUT_MS = 90_000;
+
+/**
+ * Hard ceiling on a single call, enforced by VAPI itself (`maxDurationSeconds`).
+ * A recipient deciding on a pallet of produce needs far more than a few seconds,
+ * but no legitimate offer call runs past five minutes.
+ */
+const MAX_CALL_DURATION_S = 300;
+
+/**
+ * The model that actually talks on the phone — VAPI's in-call ASR→LLM→TTS loop,
+ * NOT the backend LlmClient (that one is chosen by LLM_PROVIDER and does intake,
+ * offers, manager chat, and the donor callback).
+ *
+ * Google/Gemini rather than OpenAI: the pitch says Gemini, so the voice should
+ * be Gemini too, and it keeps every model in the system on one provider we hold
+ * the key for. Requires a `google` credential on the VAPI account (Gemini API
+ * key from AI Studio) — without it VAPI rejects the call, it does not fall back.
+ *
+ * Shared by both assistants so the inbound donor and the outbound pantry never
+ * end up on different models. `flash` because a phone call is latency-critical.
+ */
+export const IN_CALL_MODEL = {
+  provider: 'google',
+  model: 'gemini-2.5-flash',
+} as const;
+
+/**
+ * Backstop for a report that never arrives at all (tunnel down, process
+ * restarted mid-call, VAPI drops the webhook). It is NOT a conversation limit —
+ * MAX_CALL_DURATION_S is. Deriving it from that ceiling plus a delivery buffer
+ * keeps the two from drifting apart.
+ *
+ * This was 90s flat, which is shorter than a real conversation: observed live
+ * 2026-07-16, a recipient talked for ~100s and declined, the timer fired first
+ * and recorded `no_answer`, and the genuine decline arrived to find nothing
+ * pending. Two harms — the decline reason never reached memory (PRD §9 learns
+ * from those), and dispatch dialed the next pantry while the first call was
+ * still connected, offering the same 5000 lbs to two recipients at once.
+ */
+const CALL_TIMEOUT_MS = (MAX_CALL_DURATION_S + 60) * 1000;
 
 /** endedReason values that mean nobody picked up. */
 const NO_ANSWER_REASONS = new Set([
@@ -51,12 +90,41 @@ interface PendingCall {
 /** callId → the awaiting dispatch promise. Module-scoped so the webhook route can reach it. */
 const pending = new Map<string, PendingCall>();
 
+/**
+ * Where VAPI posts this call's end-of-call-report, and what it's allowed to post.
+ *
+ * Verified against docs.vapi.ai (2026-07): `server: { url, secret, timeoutSeconds }`
+ * plus `serverMessages: [...]` on the assistant. The 2024-10-13 changelog retired
+ * the older top-level `serverUrl`/`serverUrlSecret` in favour of this block.
+ *
+ * `serverMessages` is deliberately narrowed to the one message we act on —
+ * without it VAPI also streams status-update/transcript/speech-update chatter at
+ * the route for every call.
+ *
+ * Returns {} when PUBLIC_WEBHOOK_URL is unset, which leaves the call unable to
+ * report back; placeCall warns about exactly that below.
+ */
+function serverBlock() {
+  if (!ENV.publicWebhookUrl) return {};
+  return {
+    server: {
+      url: `${ENV.publicWebhookUrl}/api/vapi/webhook`,
+      timeoutSeconds: 20,
+      ...(ENV.vapiWebhookSecret ? { secret: ENV.vapiWebhookSecret } : {}),
+    },
+    serverMessages: ['end-of-call-report'],
+  };
+}
+
 function buildAssistant(offer: OfferDraft, recipient: Recipient, item: DonationItem) {
   return {
+    ...serverBlock(),
+    // VAPI ends the call here; CALL_TIMEOUT_MS is deliberately longer so the
+    // report always wins the race against our own backstop.
+    maxDurationSeconds: MAX_CALL_DURATION_S,
     firstMessage: offer.script,
     model: {
-      provider: 'openai',
-      model: 'gpt-4o',
+      ...IN_CALL_MODEL,
       messages: [
         {
           role: 'system',
@@ -73,6 +141,24 @@ function buildAssistant(offer: OfferDraft, recipient: Recipient, item: DonationI
   };
 }
 
+/**
+ * The number this call is actually dialed to.
+ *
+ * LIVE_CALL_PHONE_OVERRIDE redirects every outbound call to one handset. This is
+ * the ONLY place a dial target is chosen, so nothing upstream — ranking, offer
+ * drafting, the recipient's own `phone` field — can route around it. The returned
+ * CallAttempt still credits the recipient the engine actually picked.
+ */
+function dialTarget(recipient: Recipient): string {
+  const override = ENV.liveCallPhoneOverride;
+  if (!override) return recipient.phone;
+  console.warn(
+    `[vapi] LIVE_CALL_PHONE_OVERRIDE active — dialing ${override} ` +
+      `instead of ${recipient.name} (${recipient.phone}).`,
+  );
+  return override;
+}
+
 export class VapiVoice implements VoiceProvider {
   async placeCall(
     offer: OfferDraft,
@@ -81,6 +167,16 @@ export class VapiVoice implements VoiceProvider {
   ): Promise<CallAttempt> {
     if (!ENV.vapiApiKey || !ENV.vapiPhoneNumberId) {
       throw new Error('VAPI_API_KEY and VAPI_PHONE_NUMBER_ID are required for VOICE_PROVIDER=vapi');
+    }
+    if (!ENV.publicWebhookUrl) {
+      // Not fatal — the call still connects and a human still hears the offer —
+      // but nothing can report the outcome back, so this dispatch is guaranteed
+      // to burn the full 90s timeout and record no_answer whatever is said.
+      console.warn(
+        '[vapi] PUBLIC_WEBHOOK_URL is unset: no server block on the assistant, so ' +
+          'no end-of-call-report can reach us. This call will time out after 90s ' +
+          'and resolve as no_answer regardless of the recipient\'s answer.',
+      );
     }
 
     const res = await fetch(`${VAPI_BASE}/call`, {
@@ -91,7 +187,7 @@ export class VapiVoice implements VoiceProvider {
       },
       body: JSON.stringify({
         phoneNumberId: ENV.vapiPhoneNumberId,
-        customer: { number: recipient.phone },
+        customer: { number: dialTarget(recipient) },
         assistant: buildAssistant(offer, recipient, item),
       }),
     });
@@ -228,6 +324,25 @@ export function parseWebhook(body: unknown): NormalizedWebhook {
   const type = String(msg.type ?? '');
   if (type !== 'end-of-call-report') {
     throw new Error(`Unsupported VAPI webhook type: ${type || '(none)'}`);
+  }
+
+  // VAPI posts TWO end-of-call-reports per call. The first fires while the call
+  // is still winding down — endedReason `call.in-progress.*`, empty analysis,
+  // empty transcript. The second, seconds later, carries the real endedReason
+  // (`customer-ended-call`), successEvaluation, and transcript.
+  //
+  // resolveCall() resolves on first match and drops the pending entry, so acting
+  // on the premature one means every call derives `declined` (no data ⇒ the
+  // ambiguous fallback) and the real acceptance arrives to find nothing pending.
+  // Observed live 2026-07-16: recipient said "Yes. I will be able to take them
+  // today.", successEvaluation 'true' — and dispatch still rang the next pantry.
+  //
+  // Gate on endedReason, NOT on "is the payload empty": a real no-answer report
+  // is also empty (no transcript, no analysis) but must still resolve, or the
+  // dispatch hangs for the full 90s timeout.
+  const endedReason = String(msg.endedReason ?? '');
+  if (endedReason.startsWith('call.in-progress.')) {
+    throw new Error(`Premature end-of-call-report (endedReason=${endedReason}); awaiting the final report`);
   }
 
   const call = (msg.call ?? {}) as Record<string, unknown>;

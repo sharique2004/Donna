@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { parseWebhook, VapiVoice } from '../src/core/voice/vapi.js';
+import { ENV } from '../src/config.js';
 
 describe('vapi.parseWebhook (§7.3 normalization)', () => {
   it('normalizes an end-of-call-report with call.id, transcript, and success', () => {
@@ -99,6 +100,58 @@ describe('vapi.parseWebhook (§7.3 normalization)', () => {
 describe('VapiVoice keyless behavior', () => {
   it('constructs without any env keys', () => {
     expect(() => new VapiVoice()).not.toThrow();
+  });
+
+  describe('LIVE_CALL_PHONE_OVERRIDE', () => {
+    const RECIPIENT = {
+      id: 'rec-bayview-hub', name: 'Bayview Community Food Hub', type: 'pantry' as const,
+      leadContact: 'Denise Carter', phone: '+14155550101',
+      lat: 0, lng: 0, infrastructure: [], accepts: [], rejects: [],
+      typicalWeeklyVolumeLbs: 100, receivedRecentLbs: 0,
+    };
+    const OFFER = { itemId: 'i', recipientId: 'rec-bayview-hub', script: 's', summary: 'x' };
+    const ITEM = {
+      id: 'i', donationId: 'd', item: 'strawberries', qtyLbs: 1,
+      category: 'fresh_produce' as const,
+      hoursToSpoil: 10, needsRefrigeration: true, status: 'pending' as const, attempts: [],
+    };
+
+    const saved = { ...ENV };
+    afterEach(() => {
+      Object.assign(ENV, saved);
+      vi.unstubAllGlobals();
+    });
+
+    /** Stub /call, capture the posted body, and abandon the pending promise. */
+    async function capturePostedNumber(): Promise<string> {
+      let posted: string | undefined;
+      vi.stubGlobal('fetch', async (_url: string, init: { body: string }) => {
+        posted = JSON.parse(init.body).customer.number;
+        return { ok: true, json: async () => ({ id: 'call_stub' }) } as unknown as Response;
+      });
+      const v = new VapiVoice();
+      // placeCall stays pending until the webhook resolves it, so race the
+      // POST against a tick — we only care about what got dialed.
+      await Promise.race([
+        v.placeCall(OFFER, RECIPIENT, ITEM),
+        new Promise((r) => setTimeout(r, 0)),
+      ]);
+      return posted!;
+    }
+
+    it('dials the override instead of the ranked recipient when set', async () => {
+      Object.assign(ENV, {
+        vapiApiKey: 'k', vapiPhoneNumberId: 'p', liveCallPhoneOverride: '+15555550123',
+      });
+      expect(await capturePostedNumber()).toBe('+15555550123');
+    });
+
+    it("dials the recipient's real phone when unset", async () => {
+      Object.assign(ENV, {
+        vapiApiKey: 'k', vapiPhoneNumberId: 'p', liveCallPhoneOverride: '',
+      });
+      expect(await capturePostedNumber()).toBe('+14155550101');
+    });
   });
 
   it('placeCall rejects clearly when keys are absent', async () => {

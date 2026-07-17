@@ -3,8 +3,8 @@
 
 import type {
   AgentConfig, CallLogEntry, Channel, DirectedCallResponse, Donation, EnrichedDonation,
-  EquitySimResult, HealthResponse, HistoryEvent, ManagerReply, ManualCallInput,
-  RankResponse, RankedRecipient, Recipient, Weights,
+  HealthResponse, HistoryEvent, LiveResponse, ManagerReply,
+  ManualCallInput, RankResponse, RankedRecipient, Recipient, Weights,
 } from './types';
 
 const BASE = '/api';
@@ -52,6 +52,21 @@ export const api = {
     request<any>(`/donations/${id}/dispatch`, { method: 'POST', body: '{}' })
       .then((raw) => (raw && raw.donation ? (raw.donation as Donation) : (raw as Donation))),
 
+  /**
+   * Release a donation held at `awaiting_triage` — the human gate. Returns 202
+   * immediately; the call loop runs in the background and persists as it goes,
+   * so the caller follows along via getDonation rather than holding a request
+   * open for minutes of real phone calls.
+   */
+  approve: (id: string) =>
+    request<{ ok: boolean; status: string; donationId: string }>(
+      `/donations/${id}/approve`,
+      { method: 'POST', body: '{}' },
+    ),
+
+  /** Calls on the phone right now, with transcripts as they are spoken. */
+  live: () => request<LiveResponse>('/live'),
+
   rank: (itemId: string, weights?: Weights) =>
     request<any>(`/items/${itemId}/rank`, {
       method: 'POST',
@@ -96,9 +111,6 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ message }),
     }),
-
-  equitySimulate: (drops = 30) =>
-    request<EquitySimResult>(`/equity/simulate?drops=${drops}`),
 
   reset: () => request<any>('/demo/reset', { method: 'POST', body: '{}' }),
 

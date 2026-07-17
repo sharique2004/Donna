@@ -14,9 +14,15 @@ Built for the AI Supply Chain Hackathon.
 fast *and* explainable *and* provably equitable over time.
 
 ## Stack
-- **VAPI** — real-time voice calls (inbound intake + outbound offers)
-- **InsForge** — backend, database, and agent brains (OpenRouter-backed AI)
-- **Deterministic scoring engine** — the auditable core that picks recipients
+- **VAPI + Twilio** — real-time voice (inbound donor intake + outbound offers)
+- **Gemini 2.5 Flash** — agent brains (intake parsing, offers, manager chat,
+  donor callback) *and* the model that talks on the phone. Transcription is
+  Deepgram, VAPI's default
+- **Deterministic scoring engine** — the auditable core that picks recipients.
+  No LLM touches the allocation decision
+- **JSON store** behind a pluggable `MemoryStore` interface — a food bank points
+  it at their own database by implementing one class
+- *(InsForge code paths exist but are inert — see PRD §11 for why)*
 
 ## The agents
 1. **Intake Parser** — any channel → structured, multi-item donation

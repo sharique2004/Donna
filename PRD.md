@@ -65,7 +65,7 @@ it all by chatting.
                                                           (1 donation → N items)
                                                                      │
                                                                      ▼
-                              ┌──────────── InsForge DB ◀────────────┤
+                              ┌──────────── Database ◀───────────────┤
                               │                                       │
                     Persistent Recipient Memory ─────▶  SCORING ENGINE  (per item)
                     (infra · prefs · capacity ·         deterministic, multi-objective
@@ -103,20 +103,32 @@ Five LLM agents at the edges + one deterministic engine at the core.
 
 | # | Agent | Trigger | In → Out | Runtime |
 |---|-------|---------|----------|---------|
-| **1** | **Intake Parser** | Normalized text arrives | raw text → structured donation with N line-items `{item, qty, unit, hours_to_spoil, needs_refrigeration, category}` | InsForge AI |
-| **2** | **Offer Drafter** | After scoring | item + top recipient → offer pitch (used as the call script / text body) | InsForge AI |
-| **3** | **Recipient Caller** | Offer ready | VAPI voice call to pantry **or** community-agency lead → accept / decline + reason | VAPI (in-call model) |
-| **4** | **Manager Copilot** | Manager chats | NL instruction → structured edits to recipient memory / agent config | InsForge AI |
-| **5** | **Donor Callback** | All items resolved | per-item outcome → message back to donor on original channel | VAPI (voice) / text / email |
+| **0** | **Intake Receptionist** | A donor phones in | greets, asks what/how much/how soon, pickup + name → call transcript | VAPI in-call (Gemini 2.5 Flash) |
+| **1** | **Intake Parser** | Transcript or text arrives | raw text → structured donation with N line-items `{item, qty, unit, hours_to_spoil, needs_refrigeration, category}` | Gemini 2.5 Flash |
+| **2** | **Offer Drafter** | After scoring | item + top recipient → offer pitch (used as the call script / text body) | Gemini 2.5 Flash |
+| **3** | **Recipient Caller** | Offer ready, human approved | VAPI voice call to pantry **or** community-agency lead → accept / decline + reason | VAPI in-call (Gemini 2.5 Flash) |
+| **4** | **Manager Copilot** | Manager chats | NL instruction → structured edits to recipient memory / agent config | Gemini 2.5 Flash |
+| **5** | **Donor Callback** | All items resolved | per-item outcome → message back to donor on original channel | Gemini 2.5 Flash |
 | — | **Scoring Engine** | Donation stored | item + all recipients + memory → ranked list w/ score breakdown | **Deterministic (code, not AI)** |
+
+*Agent 0 is new: inbound telephony was out of scope in v1 (§15) and is now built.
+It is also the first path where Agent 1 does real work — the canned demo
+hardcodes the mock parser.*
 
 ### Live voice vs. back-office thinking
 - **In-call intelligence** (talking to a driver or a pantry in real time) runs on
   **VAPI's infrastructure** — sub-second streaming ASR→LLM→TTS. This is not a CLI
-  or back-office job.
+  or back-office job. The LLM in that loop is Gemini 2.5 Flash; the ASR is
+  Deepgram (VAPI's default).
 - **Everything after/around a call** (parse, score-explain, draft, manager chat,
-  callback composition) is not latency-critical and runs on **InsForge AI**
-  (OpenRouter-backed edge functions).
+  callback composition) is not latency-critical and runs on **Gemini 2.5 Flash**
+  via Google's OpenAI-compatible endpoint.
+- **Known limit:** an in-call model asked something it was never told will invent
+  an answer — observed live, it fabricated both a food-bank name and a donation's
+  provenance. Prompts now name the operator explicitly and forbid invention, but
+  the outbound assistant still is not given the donation's real source, so it
+  cannot answer "where is this from?" truthfully. Sourcing is a food-safety fact;
+  this is a real gap, not a cosmetic one.
 
 ---
 
@@ -155,7 +167,11 @@ inequality and Donna corrects it. This is the defensible differentiator.
 
 ---
 
-## 6. Data Model (InsForge)
+## 6. Data Model
+
+*Storage-agnostic: this is the shape behind the `MemoryStore` interface, not a
+vendor's schema. The JSON store implements it today; a food bank's own Postgres
+implements the same 14 methods.*
 
 ```
 donation
@@ -246,16 +262,39 @@ arrived — and the demo can ingest the same donation multiple ways into one bra
 
 ## 11. Tech Stack
 
+*Updated 2026-07-16 to match what actually runs. The original plan below the
+table is kept because the reasons it changed are worth knowing.*
+
 | Layer | Choice | Why |
 |---|---|---|
-| Voice (in/out) | **VAPI** | Bundled streaming ASR→LLM→TTS; owns real-time calls |
-| Backend + DB + agent brains | **InsForge** (AI via OpenRouter) | One cloud backend; VAPI webhooks hit a public InsForge function URL — no laptop/ngrok dependency on stage |
-| Scoring engine | Deterministic code (InsForge function) | Auditable, instant, reproducible |
-| Frontend | Map console (Leaflet) + Manager chat | Live ranked recipients, breakdowns, equity ledger, weight sliders |
-| Local dev | `claude` CLI | Dev-time only; nothing on stage depends on the laptop being reachable |
+| Voice (in/out) | **VAPI**, telephony via **Twilio** | Bundled streaming ASR→LLM→TTS; owns real-time calls. Inbound: the number routes to our server, which answers VAPI's `assistant-request` with a transient assistant, so Donna's persona lives in code |
+| In-call model | **Gemini 2.5 Flash** (`provider: google`) | The model that actually talks on the phone. `flash` because a call is latency-critical |
+| Transcription | **Deepgram** (VAPI default) | Speech→text only. Streaming ASR is its own job; Google STT is available but Deepgram is the recommended default and transcription quality gates everything downstream |
+| Agent brains (1, 2, 4, 5) | **Gemini 2.5 Flash** via Google's OpenAI-compatible endpoint | Intake parsing, offer drafting, manager chat, donor callback. Not latency-critical |
+| Scoring engine | Deterministic TypeScript | Auditable, instant, reproducible. **No LLM touches the allocation decision** |
+| Database | JSON store behind a pluggable `MemoryStore` interface | 14 methods; `DB_PROVIDER` selects the implementation. A food bank brings its own Postgres/Airtable by writing one class |
+| Frontend | Stage dashboard + map console (Leaflet) + Manager chat | Live call transcripts, ranked recipients, breakdowns, equity ledger, weight sliders |
 
-**Why the architecture also wins the pitch:** the entire brain is serverless and
-cloud-native — any food bank could onboard without installing anything.
+**What changed from the original plan, and why:**
+
+- **InsForge is not used.** It was to be the DB, the agent brains, and the
+  serverless host. All three fell through: the AI gateway at `/api/ai/v1` returns
+  404 (the route does not exist), the schema was never applied, and the
+  serverless host is architecturally incompatible — `placeCall` parks a promise
+  in memory that a webhook must resolve, and on serverless the webhook is a
+  different invocation with a different memory space. The `insforge` code paths
+  remain but are inert.
+- **Gemini replaced InsForge AI** — one env var, because every agent talks to an
+  OpenAI-compatible endpoint through a single `LlmClient` interface.
+- **The backend is a long-lived Node process, not serverless.** This is the
+  honest tradeoff for the pending-promise call design. Making the whole brain
+  serverless means rebuilding the call flow as a webhook-driven DB state machine
+  with no awaited promises — the right architecture, and still true to the pitch
+  below, but not a one-day change.
+
+**Why the architecture still travels:** the intelligence is all hosted APIs and
+the store is one interface away from any database — a food bank onboards by
+pointing config at their own data, not by installing a stack.
 
 ---
 
@@ -269,10 +308,10 @@ demo is fully believable without burning the day on telephony.
 | Agent 1 Intake | **Real** — fed a transcript/text (paste or pre-recorded voicemail) |
 | Scoring engine + memory | **Real — the star.** Defensible IP |
 | Agent 2 Offer | **Real** |
-| Agent 3 Recipient call | **Simulated by default** (show call script + mocked response); **one real VAPI outbound call** wired for the live wow if ahead |
+| Agent 3 Recipient call | **Real** — live VAPI outbound calls, verified end to end. `VOICE_PROVIDER=sim` keeps the deterministic simulator as the offline fallback |
 | Agent 4 Manager Copilot | **Real** — chat that edits memory live (cheap, huge wow) |
 | Agent 5 Donor Callback | **Real logic**, delivered as text/on-screen by default; voice if time |
-| Multi-channel intake | Voice adapter + walk-in text box built; SMS/email stretch |
+| Multi-channel intake | **Real inbound phone call** + walk-in text box built; SMS/email stretch |
 | Equity ledger + A/B chart | **Real** — nearest-recipient vs. Donna over 30 simulated drops |
 
 **Non-negotiables for demo day:**
@@ -283,7 +322,7 @@ demo is fully believable without burning the day on telephony.
 ### Suggested hour-by-hour
 | Time | Build |
 |---|---|
-| 0–1h | InsForge project + schema; seed ~15 recipients (pantries + agencies) |
+| 0–1h | Project + store; seed ~15 recipients (pantries + agencies) |
 | 1–3h | Scoring engine + `/score` (per item). Unit-test the equity term |
 | 3–4h | Agent 1 intake (text → structured items) |
 | 4–6h | Map console: donation + ranked recipients + breakdown cards |
@@ -328,7 +367,11 @@ demo is fully believable without burning the day on telephony.
 
 ## 15. Out of Scope (v1)
 
-- Real inbound telephony ingestion (use transcripts).
+*Updated 2026-07-16.*
+
+- ~~Real inbound telephony ingestion (use transcripts).~~ **Now built** — a donor
+  calls a real Twilio number, Donna answers, and the transcript becomes a
+  donation held for human triage.
 - Full SMS + email adapters (stretch).
 - Route optimization / driver dispatch logistics.
 - Auth, multi-tenant, production hardening.

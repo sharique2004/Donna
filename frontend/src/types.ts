@@ -7,7 +7,11 @@ export type ItemCategory =
   | 'fresh_produce' | 'fruit' | 'canned' | 'dry_goods' | 'baked'
   | 'dairy' | 'meat' | 'prepared' | 'beverages' | 'other';
 export type ItemStatus = 'pending' | 'matched' | 'unplaceable';
-export type DonationStatus = 'received' | 'parsed' | 'scored' | 'dispatching' | 'resolved';
+// `awaiting_triage`: parsed and scored but held for a human to approve the calls
+// (PRD §10). Inbound phone donations land here; only POST /donations/:id/approve
+// releases them.
+export type DonationStatus =
+  | 'received' | 'parsed' | 'scored' | 'awaiting_triage' | 'dispatching' | 'resolved';
 export type RecipientType = 'pantry' | 'community_agency';
 export type Infrastructure = 'walk_in_fridge' | 'fridge' | 'freezer' | 'dry_storage' | 'loading_dock';
 export type CallOutcome = 'accepted' | 'declined' | 'no_answer';
@@ -25,6 +29,8 @@ export interface DonationItem {
   item: string; qtyLbs: number; category: ItemCategory;
   hoursToSpoil: number; needsRefrigeration: boolean;
   status: ItemStatus;
+  // Present only while a call for this item is ringing/connected.
+  dialing?: { recipientId: string; recipientName: string; startedAt: string };
   matchedRecipientId?: string; resolutionReason?: string;
   attempts: CallAttempt[];
 }
@@ -114,6 +120,11 @@ export interface RankResponse {
   explanation: string;
   warnings?: string[];
 }
+
+// ---- live call feed (stage dashboard) ----
+export interface LiveLine { speaker: 'agent' | 'recipient'; text: string }
+export interface LiveCall { callId: string; lines: LiveLine[] }
+export interface LiveResponse { calls: LiveCall[] }
 
 export const TERM_KEYS = ['feasibility', 'coldchain', 'capacity', 'equity', 'prefs'] as const;
 export type TermKey = (typeof TERM_KEYS)[number];

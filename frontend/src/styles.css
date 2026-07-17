@@ -458,10 +458,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .rc-tip .rt-row .sw { width: 9px; height: 9px; border-radius: 2px; }
 .rc-tip .rt-row .v { margin-left: auto; font-variant-numeric: tabular-nums; }
 
-/* ---------- demo page (§H.3) — empty themed mount point ---------- */
-.demo-page { position: absolute; inset: 44px 0 0 0; z-index: 10; background: var(--bg); display: flex; align-items: center; justify-content: center; }
-.demo-hint { color: var(--text-faint); font: 650 12px var(--sans); letter-spacing: 0.06em; text-transform: uppercase; }
-
 /* ---------- manager drawer ---------- */
 .drawer-scrim { position: fixed; inset: 0; z-index: 1400; background: rgba(6,7,9,0.5); animation: fade .18s var(--ease); }
 .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 420px; max-width: 94vw; z-index: 1500; background: var(--panel); border-left: 1px solid var(--border-2); box-shadow: var(--shadow); display: flex; flex-direction: column; transform: translateX(100%); transition: transform .26s var(--ease); }
@@ -507,4 +503,186 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .feed { width: 44vw; }
   .detail, .network { width: 52vw; }
   .map-legend { display: none; }
+}
+
+/* ============================================================ stage demo ==
+   The presentation view (§H skin): the whole narrative on one screen, sized for
+   a projector, driven by 1s polling. Opaque near-black surfaces, hairline
+   borders, ONE accent. Live state is typographic (an accent micro-label + a
+   hairline accent border) — no glowing dots, no glass, no gradients, no tinted
+   pill fills. Uses the v1.4 tokens only.
+   ========================================================================= */
+
+.stage {
+  position: relative;
+  z-index: 2;
+  padding: 64px 20px 20px;
+  height: 100vh;
+  overflow: auto;
+  background: var(--bg);
+}
+
+/* Inbound and outbound sit side by side and stay put: the presenter is holding
+   a phone and cannot go hunting for a panel. */
+.stage-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 1fr 1fr;
+  grid-template-areas:
+    "inbound  outbound"
+    "inv      decision"
+    "result   result";
+  max-width: 1500px;
+  margin: 0 auto;
+}
+.scard.inbound  { grid-area: inbound; }
+.scard.outbound { grid-area: outbound; }
+.scard.decision { grid-area: decision; }
+.scard.result   { grid-area: result; }
+.stage-grid > .scard:nth-child(2) { grid-area: inv; }
+
+@media (max-width: 1100px) {
+  .stage-grid {
+    grid-template-columns: 1fr;
+    grid-template-areas: "inbound" "inv" "decision" "outbound" "result";
+  }
+}
+
+.scard {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  min-height: 120px;
+}
+.scard h3 {
+  margin: 0 0 10px;
+  font: 650 12px/1.2 var(--sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* A live call is marked structurally — a hairline accent border, no glow (§H). */
+.scard.hot { border-color: var(--hot); }
+
+/* "On call" — a typographic accent micro-label, replacing the glowing pip (§H.2). */
+.live-tag {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font: 650 10px/1 var(--sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--hot);
+}
+
+.callee { margin: 0 0 8px; font: 500 14px/1.3 var(--sans); color: var(--text); }
+.callee .about { color: var(--text-dim); font-weight: 400; }
+.muted  { margin: 0; color: var(--text-faint); font: 400 13px/1.4 var(--sans); }
+
+/* transcript */
+.tx {
+  max-height: 230px;
+  overflow-y: auto;
+  font: 400 13px/1.5 var(--sans);
+  scroll-behavior: smooth;
+}
+.tx.empty { min-height: 0; max-height: 0; }
+.tx .ln { margin: 0 0 6px; color: var(--text); }
+.tx .spk {
+  display: inline-block;
+  min-width: 52px;
+  color: var(--text-faint);
+  font: 600 10px/1.5 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-right: 8px;
+}
+.tx .ln.agent { color: var(--text-dim); }
+.tx .ln.human { color: var(--text); }
+
+/* inventory */
+.items { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  padding: 8px 10px;
+  background: var(--surface-1);
+}
+.item-top { display: flex; justify-content: space-between; align-items: baseline; }
+.item-top strong { font: 600 14px/1.2 var(--sans); color: var(--text); }
+.item .qty { font: 500 12px var(--mono); color: var(--text-dim); }
+.item-meta { margin-top: 2px; font: 400 12px var(--sans); color: var(--text-faint); }
+
+/* chips: hairline quiet tags — transparent fill, muted fg, radius 4 (§H.2).
+   Status colour lives in the text only, never a filled pill. */
+.chip {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 7px;
+  border-radius: var(--radius-chip);
+  font: 650 10px/1.6 var(--sans);
+  letter-spacing: 0.04em;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.chip.ok      { color: var(--good-mute); }
+.chip.bad     { color: var(--bad-mute); }
+.chip.calling { color: var(--hot); }
+
+/* decision */
+.hold { margin: 0 0 10px; font: 400 13px/1.4 var(--sans); color: var(--text-dim); }
+.approve {
+  appearance: none;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: var(--hot);
+  color: var(--hot-ink);
+  font: 650 14px/1 var(--sans);
+  padding: 11px 16px;
+  cursor: pointer;
+  transition: transform 0.12s var(--ease), background 0.15s var(--ease);
+}
+.approve:hover:not(:disabled) { background: var(--hot-2); }
+.approve:active:not(:disabled) { transform: translateY(1px); }
+.approve:disabled { opacity: 0.5; cursor: default; }
+
+/* outcomes */
+.attempts { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.attempts li {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font: 400 13px var(--sans);
+  padding: 6px 8px;
+  border-radius: var(--radius-s);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+}
+.attempts .who { font-weight: 600; color: var(--text); }
+.attempts .about { color: var(--text-faint); }
+.attempts .why { color: var(--text-dim); font-style: italic; }
+
+/* donor callback — opaque surface, hairline border, one accent left rule (§H.2) */
+.donor-msg {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--hot);
+  background: var(--surface-1);
+  border-radius: 0 var(--radius-s) var(--radius-s) 0;
+}
+.donor-msg .lbl {
+  font: 650 10px var(--sans); letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--hot);
+}
+.donor-msg p { margin: 4px 0 0; font: 400 13px/1.45 var(--sans); color: var(--text); }
+
+.stage-err {
+  position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+  background: var(--panel); border: 1px solid var(--border-2); border-left: 3px solid var(--bad-mute);
+  color: var(--bad-mute); border-radius: var(--radius-s);
+  padding: 7px 12px; font: 500 12px var(--mono);
 }
