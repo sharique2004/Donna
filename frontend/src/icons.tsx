@@ -150,6 +150,16 @@ export const Check = (p: IconProps) => (
   </Svg>
 );
 
+// Route waypoint glyph (§I.5): two nodes joined by an S-curve. Rendered before
+// "→ {recipient}" on matched Inbound cards so a placed item reads as routed.
+export const Route = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="6" cy="19" r="3" />
+    <path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15" />
+    <circle cx="18" cy="5" r="3" />
+  </Svg>
+);
+
 // ---- channel / recipient-type mappers --------------------------------------
 
 const CHANNEL_ICON: Record<Channel, (p: IconProps) => React.JSX.Element> = {

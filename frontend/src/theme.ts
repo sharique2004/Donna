@@ -119,3 +119,47 @@ export function spoilCountdown(receivedAt: string, hoursToSpoil: number): string
   if (hLeft < 24) return `${Math.round(hLeft)}h left`;
   return `${Math.round(hLeft / 24)}d left`;
 }
+
+// ---- v1.5 routing narrative (§I.1) ----
+
+/**
+ * Food-bank home base. DISPLAY-ONLY: the backend has NO depot/inventory concept
+ * (only ENV.foodBankName, a string) and `distanceMiles` is pickup→recipient
+ * only. This marker and the direct-vs-store routing story are presentation-layer
+ * constructs derived deterministically on the client — they never round-trip to
+ * the server. Rendered on both tabs as a small diamond with a quiet label.
+ */
+export const FOOD_BANK = { name: 'SF-Marin Food Bank', lat: 37.7541, lng: -122.3924 } as const;
+
+/**
+ * Route arc colors (§I.3). leaflet pathOptions is plain JS and CANNOT read CSS
+ * custom properties, so the arc hex lives here — the single source of truth
+ * alongside the other palette constants (TERM_COLORS above). These MUST stay in
+ * lockstep with styles.css :root (--flow-direct / --flow-store / --route-dim).
+ */
+export const FLOW_DIRECT = '#ff6a3d'; // = --hot / --flow-direct (straight from supplier)
+export const FLOW_STORE = '#4fb3a9';  // = --flow-store (via warehouse / stored inventory)
+export const ROUTE_DIM = 'rgba(231,233,236,0.22)'; // = --route-dim (dashed preview)
+
+/**
+ * Routing verdict (§I.1). Whether an item is shown routing straight from the
+ * supplier to the recipient (perishable) or taken into the warehouse first
+ * (shelf-stable). Presentation-only, deterministic, 7-day (168h) threshold.
+ * Canned scenario: strawberries 48h → direct · bread 24h → direct · beans
+ * 2160h → store.
+ */
+export function routeVia(hoursToSpoil: number): 'direct' | 'store' {
+  return hoursToSpoil >= 168 ? 'store' : 'direct';
+}
+
+/**
+ * One-line reason string behind the routing verdict (§I.1), used by the stage
+ * verdict micro-labels. Direct copy names the spoilage window dynamically; store
+ * copy is fixed shelf-stable phrasing.
+ */
+export function verdictCopy(item: { hoursToSpoil: number }): string {
+  if (routeVia(item.hoursToSpoil) === 'store') {
+    return 'shelf-stable — taken into inventory, allocated from the warehouse';
+  }
+  return `spoils in ${Math.round(item.hoursToSpoil)}h — routed straight from the supplier`;
+}

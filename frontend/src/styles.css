@@ -31,8 +31,20 @@
   --warn-mute: #c9a86f;   /* muted amber — pending accents */
   --red-tint:  rgba(201,138,138,0.05);  /* ≤4% red card tint */
 
+  /* v1.5 routing narrative (§I.1). Direct-vs-store is a presentation-layer
+     concept only — the backend has no depot/inventory. --flow-direct mirrors
+     --hot (kept as a literal so raw getComputedStyle reads resolve to a color). */
+  --flow-direct: #ff6a3d;                 /* = --hot — straight-from-supplier route */
+  --flow-store:  #4fb3a9;                 /* via-warehouse (stored inventory) route */
+  --route-dim:   rgba(231,233,236,0.22);  /* dashed preview / de-emphasised route */
+
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Menlo", monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  /* Display face (§I.1): Space Grotesk when the bundled woff2 loads, otherwise
+     falls back to the system stack so a missing asset degrades silently. Used
+     ONLY on the wordmark, panel titles, segmented control, equity stat numbers
+     and stage phase labels — body copy stays --sans. */
+  --display: "Space Grotesk", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 
   --radius:   8px;   /* panels */
   --radius-s: 6px;   /* rows / buttons */
@@ -40,6 +52,29 @@
   --shadow: 0 10px 30px rgba(0,0,0,0.45);
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
 }
+
+/* Space Grotesk display face (§I.1). Bundled woff2 (latin subset, OFL) live in
+   src/assets/fonts and are inlined/hashed by Vite at build time — no runtime
+   network fetch. font-display:swap so text paints in the fallback immediately
+   and the whole thing degrades silently if an asset is ever missing. */
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./assets/fonts/space-grotesk-latin-500-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("./assets/fonts/space-grotesk-latin-700-normal.woff2") format("woff2");
+}
+
+/* Utility (§I.1): opt any element into the display face. Reserved for later WPs
+   (stage phase labels, verdict labels) — foundations only wire it here. */
+.display-face { font-family: var(--display); }
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
@@ -82,14 +117,14 @@ body {
   background: var(--bg);
   border-bottom: 1px solid var(--border);
 }
-.wordmark { font-weight: 700; font-size: 16px; letter-spacing: -0.4px; color: var(--text); }
+.wordmark { font-family: var(--display); font-weight: 700; font-size: 16px; letter-spacing: -0.4px; color: var(--text); }
 .wordmark .wm-dot { color: var(--hot); }
 .hspacer { flex: 1; }
 
 .seg { display: flex; background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius-s); padding: 2px; gap: 2px; }
 .seg-btn {
   appearance: none; border: 0; background: transparent; cursor: pointer;
-  color: var(--text-dim); font: 600 12px var(--sans); padding: 4px 13px; border-radius: 4px;
+  color: var(--text-dim); font: 600 12px var(--display); padding: 4px 13px; border-radius: 4px;
   transition: color .15s var(--ease), background .15s var(--ease);
 }
 .seg-btn:hover { color: var(--text); }
@@ -138,6 +173,10 @@ body {
 .lg-row .swx { width: 9px; height: 9px; border-radius: 50%; }
 .lg-row .swx.grey { background: var(--text-faint); }
 .lg-row .swx.pickup { background: var(--hot); }
+/* route swatches (§I.3): short rules, not dots — direct solid, warehouse dashed */
+.lg-row .swx.route { width: 14px; height: 0; border-radius: 0; border-top: 3px solid transparent; }
+.lg-row .swx.route.direct { border-top-color: var(--flow-direct); }
+.lg-row .swx.route.store { border-top-color: var(--flow-store); border-top-style: dashed; }
 
 /* leaflet popup theming */
 .leaflet-popup-content-wrapper { background: var(--panel) !important; color: var(--text) !important; border: 1px solid var(--border-2); border-radius: var(--radius) !important; box-shadow: var(--shadow) !important; }
@@ -157,6 +196,39 @@ body {
 .pickup-pin .ring { position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; border: 2px solid var(--hot); animation: pulse 2s ease-out infinite; }
 @keyframes pulse { 0% { transform: scale(1); opacity: 0.7; } 100% { transform: scale(3.2); opacity: 0; } }
 
+/* ---------- v1.5 map layer (§I.1/§I.3) ---------- */
+/* Non-interactive vignette: radial edge darkening (~35% max), no blur (§H). */
+.map-vignette {
+  position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: radial-gradient(ellipse 75% 75% at 50% 48%, transparent 55%, rgba(0,0,0,0.35) 100%);
+}
+
+/* Food-bank home base — quiet rotated-square diamond + label (display-only). */
+.fb-marker { position: relative; }
+.fb-marker .fb-diamond {
+  position: absolute; left: 50%; top: 50%; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px;
+  background: var(--panel); border: 1.5px solid var(--text-dim); transform: rotate(45deg);
+}
+.fb-marker .fb-label {
+  position: absolute; left: 11px; top: -4px; white-space: nowrap;
+  font: 650 10px var(--display); letter-spacing: 0.02em; color: var(--text-dim);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.85);
+}
+
+/* Route-endpoint pulse ring (emphasized, accent) + failed-pickup ring (muted red).
+   Hand-rolled keyframes on divIcon inner elements — same pattern as .pickup-pin. */
+.rt-pulse { position: relative; }
+.rt-pulse .rt-core {
+  position: absolute; left: 50%; top: 50%; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%; background: var(--flow-direct);
+}
+.rt-pulse .rt-ring {
+  position: absolute; left: 50%; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px;
+  border-radius: 50%; border: 2px solid var(--flow-direct); animation: pulse 1.8s ease-out infinite;
+}
+.rt-pulse.fail .rt-core { background: var(--bad-mute); }
+.rt-pulse.fail .rt-ring { border-color: var(--bad-mute); }
+
 /* ---------- floating panels (opaque, hairline, no blur) ---------- */
 .feed, .detail, .network {
   position: absolute; top: 56px; bottom: 12px; z-index: 10;
@@ -172,7 +244,7 @@ body {
 
 /* shared panel header (title + subtle count badge, one quiet row) */
 .panel-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px 10px; }
-.panel-title { font-weight: 650; font-size: 16px; letter-spacing: -0.1px; }
+.panel-title { font-family: var(--display); font-weight: 650; font-size: 16px; letter-spacing: -0.1px; }
 .panel-sub { font-size: 11px; color: var(--text-faint); font-weight: 500; }
 .panel-count {
   margin-left: auto; min-width: 20px; height: 18px; padding: 0 6px;
@@ -224,6 +296,8 @@ body {
 .ic-placed { color: var(--good-mute); }
 .ic-dead { color: var(--bad-mute); }
 .ic-donor { color: var(--text-dim); }
+/* matched card route glyph before "→ {recipient}" (§I.5); inherits ic-placed color */
+.l2-text .rt-glyph { vertical-align: -2px; margin-right: 2px; }
 
 /* + Donation — solid accent, no gradient/glow (§H.2) */
 .feed-new {
@@ -270,7 +344,7 @@ body {
 .rwhy { font-size: 12px; line-height: 1.5; color: var(--text-dim); }
 
 .fails { margin-top: 2px; }
-.fails-toggle { appearance: none; border: 0; background: transparent; cursor: pointer; color: var(--text-faint); font: 500 11.5px var(--sans); padding: 4px 0; display: inline-flex; align-items: center; gap: 5px; }
+.fails-toggle { appearance: none; border: 0; background: transparent; cursor: pointer; color: var(--text-faint); font: 500 11.5px var(--sans); padding: 4px 0; display: inline-flex; align-items: center; gap: 5px; transition: color .14s var(--ease); }
 .fails-toggle:hover { color: var(--text-dim); }
 .fails-toggle .chev { transition: transform .16s var(--ease); }
 .fails-toggle .chev.open { transform: rotate(90deg); }
@@ -320,7 +394,7 @@ input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 
 .cb-bubble.full { display: block; -webkit-line-clamp: unset; }
 .cb-more { margin-top: 4px; }
 
-.link-btn { appearance: none; border: 0; background: transparent; cursor: pointer; color: var(--text-dim); font: 600 12px var(--sans); padding: 4px 2px; text-decoration: underline; text-underline-offset: 2px; }
+.link-btn { appearance: none; border: 0; background: transparent; cursor: pointer; color: var(--text-dim); font: 600 12px var(--sans); padding: 4px 2px; text-decoration: underline; text-underline-offset: 2px; transition: color .14s var(--ease); }
 .link-btn:hover { color: var(--hot); }
 .link-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -442,7 +516,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
 .stat { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 15px 17px; }
 .stat .sl { font: 650 11px var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); }
-.stat .sv { font-weight: 650; font-size: 26px; margin-top: 7px; font-variant-numeric: tabular-nums; }
+.stat .sv { font-family: var(--display); font-weight: 650; font-size: 26px; margin-top: 7px; font-variant-numeric: tabular-nums; }
 .stat .sd { font-size: 11px; margin-top: 4px; color: var(--text-dim); }
 .stat.win .sv { color: var(--good-mute); }
 .stat.hot .sv { color: var(--hot); }
@@ -505,184 +579,174 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .map-legend { display: none; }
 }
 
-/* ============================================================ stage demo ==
-   The presentation view (§H skin): the whole narrative on one screen, sized for
-   a projector, driven by 1s polling. Opaque near-black surfaces, hairline
-   borders, ONE accent. Live state is typographic (an accent micro-label + a
-   hairline accent border) — no glowing dots, no glass, no gradients, no tinted
-   pill fills. Uses the v1.4 tokens only.
+/* ======================================================= demo stage (§I.4) ==
+   A choreographed stage that plays OUT ON the visible map. `.stage` itself is a
+   transparent, pointer-events:none full-bleed layer so the tiles pan underneath;
+   only the floating panels/strip capture the pointer. Panels are opaque
+   near-black surfaces (§H skin) that enter with a 160ms translate+fade. ONE
+   accent; status is typographic — no glow, no glass, no gradients, no tinted
+   pills. The old .stage-grid card wall is gone.
    ========================================================================= */
 
 .stage {
-  position: relative;
+  position: fixed;
+  inset: 0;
   z-index: 2;
-  padding: 64px 20px 20px;
-  height: 100vh;
-  overflow: auto;
-  background: var(--bg);
+  pointer-events: none;
 }
 
-/* Inbound and outbound sit side by side and stay put: the presenter is holding
-   a phone and cannot go hunting for a panel. */
-.stage-grid {
-  display: grid;
-  gap: 14px;
-  grid-template-columns: 1fr 1fr;
-  grid-template-areas:
-    "inbound  outbound"
-    "inv      decision"
-    "result   result";
-  max-width: 1500px;
-  margin: 0 auto;
-}
-.scard.inbound  { grid-area: inbound; }
-.scard.outbound { grid-area: outbound; }
-.scard.decision { grid-area: decision; }
-.scard.result   { grid-area: result; }
-.stage-grid > .scard:nth-child(2) { grid-area: inv; }
+/* 160ms translate+fade enter for every floating surface. */
+@keyframes stage-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
-@media (max-width: 1100px) {
-  .stage-grid {
-    grid-template-columns: 1fr;
-    grid-template-areas: "inbound" "inv" "decision" "outbound" "result";
-  }
-}
-
-.scard {
+.stage-panel {
+  position: absolute;
+  top: 56px;
+  width: 340px;
+  max-height: calc(100vh - 76px - 200px);
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  box-shadow: var(--shadow);
   padding: 14px 16px;
-  min-height: 120px;
+  animation: stage-in 160ms var(--ease) both;
 }
-.scard h3 {
-  margin: 0 0 10px;
-  font: 650 12px/1.2 var(--sans);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.stage-panel.inbound  { left: 16px; }
+.stage-panel.outbound { right: 16px; }
+
+.sp-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.sp-title {
+  font-weight: 650; font-size: 14px; letter-spacing: -0.1px; color: var(--text);
 }
-
-/* A live call is marked structurally — a hairline accent border, no glow (§H). */
-.scard.hot { border-color: var(--hot); }
-
-/* "On call" — a typographic accent micro-label, replacing the glowing pip (§H.2). */
-.live-tag {
-  margin-left: auto;
-  flex: 0 0 auto;
-  font: 650 10px/1 var(--sans);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.sp-live {
+  margin-left: auto; flex: 0 0 auto;
+  font: 650 10px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--hot);
 }
 
-.callee { margin: 0 0 8px; font: 500 14px/1.3 var(--sans); color: var(--text); }
-.callee .about { color: var(--text-dim); font-weight: 400; }
-.muted  { margin: 0; color: var(--text-faint); font: 400 13px/1.4 var(--sans); }
+.sp-who { display: flex; align-items: center; gap: 7px; color: var(--text-dim); flex-wrap: wrap; }
+.sp-who .sp-name { font: 500 14px/1.3 var(--sans); color: var(--text); }
+.sp-who .sp-sub  { font: 400 12px/1.3 var(--sans); color: var(--text-faint); }
+.sp-loc { margin-top: 3px; font: 400 12px var(--sans); color: var(--text-faint); }
 
-/* transcript */
+/* transcript — reused by inbound + outbound panels */
 .tx {
-  max-height: 230px;
+  margin-top: 10px;
   overflow-y: auto;
   font: 400 13px/1.5 var(--sans);
   scroll-behavior: smooth;
 }
-.tx.empty { min-height: 0; max-height: 0; }
+.tx.empty { min-height: 0; }
 .tx .ln { margin: 0 0 6px; color: var(--text); }
 .tx .spk {
-  display: inline-block;
-  min-width: 52px;
+  display: inline-block; min-width: 58px;
   color: var(--text-faint);
-  font: 600 10px/1.5 var(--mono);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font: 600 10px/1.5 var(--sans);
+  text-transform: uppercase; letter-spacing: 0.06em;
   margin-right: 8px;
 }
 .tx .ln.agent { color: var(--text-dim); }
 .tx .ln.human { color: var(--text); }
 
-/* inventory */
-.items { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.item {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-s);
-  padding: 8px 10px;
-  background: var(--surface-1);
-}
-.item-top { display: flex; justify-content: space-between; align-items: baseline; }
-.item-top strong { font: 600 14px/1.2 var(--sans); color: var(--text); }
-.item .qty { font: 500 12px var(--mono); color: var(--text-dim); }
-.item-meta { margin-top: 2px; font: 400 12px var(--sans); color: var(--text-faint); }
+.sp-outcome { display: flex; align-items: baseline; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.sp-outcome .sp-reason { font: 400 12px/1.4 var(--sans); color: var(--text-dim); font-style: italic; }
 
-/* chips: hairline quiet tags — transparent fill, muted fg, radius 4 (§H.2).
-   Status colour lives in the text only, never a filled pill. */
-.chip {
-  display: inline-block;
-  margin-top: 6px;
-  padding: 2px 7px;
-  border-radius: var(--radius-chip);
-  font: 650 10px/1.6 var(--sans);
-  letter-spacing: 0.04em;
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--text-dim);
+/* draft-to-supplier compose card */
+.draft-meta { margin-top: 2px; }
+.draft-body {
+  margin-top: 10px; padding: 10px 12px;
+  border: 1px solid var(--border); border-left: 2px solid var(--hot);
+  background: var(--surface-1); border-radius: 0 var(--radius-s) var(--radius-s) 0;
+  font: 400 13px/1.5 var(--sans); color: var(--text); min-height: 40px;
 }
-.chip.ok      { color: var(--good-mute); }
-.chip.bad     { color: var(--bad-mute); }
-.chip.calling { color: var(--hot); }
+.draft-state { margin-top: 8px; font: 650 10px/1 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--good-mute); }
+.draft-err { margin: 4px 0 0; font: 500 13px/1.45 var(--sans); color: var(--bad-mute); }
 
-/* decision */
-.hold { margin: 0 0 10px; font: 400 13px/1.4 var(--sans); color: var(--text-dim); }
-.approve {
-  appearance: none;
-  border: 0;
-  border-radius: var(--radius-s);
-  background: var(--hot);
-  color: var(--hot-ink);
-  font: 650 14px/1 var(--sans);
-  padding: 11px 16px;
-  cursor: pointer;
+/* ---- bottom-center strip: item verdict cards + controls ---- */
+.stage-strip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 20px;
+  /* Center via auto margins, NOT translateX: the shared `stage-in` keyframe
+     animates `transform` to `none` (fill-mode both), which clobbers a
+     translateX(-50%) once the 160ms enter ends and shoves the strip off the
+     right edge (§bug1). Auto margins are immune. width:auto up to a 720px cap,
+     and never wider than the viewport (calc(100% - 32px)). */
+  margin-inline: auto;
+  width: fit-content;
+  max-width: min(720px, calc(100% - 32px));
+  pointer-events: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px 16px;
+  animation: stage-in 160ms var(--ease) both;
+}
+.strip-phase {
+  font-weight: 650; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-faint); margin-bottom: 10px;
+}
+
+.vstrip { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 2px; }
+.vcard {
+  flex: 1 1 0; min-width: 180px;
+  border: 1px solid var(--border); border-radius: var(--radius-s);
+  padding: 9px 11px; background: var(--surface-1);
+  animation: stage-in 220ms var(--ease) both;
+}
+.vc-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.vc-name { font: 600 14px/1.2 var(--sans); color: var(--text); }
+.vc-qty  { font: 500 12px var(--sans); color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.vc-mid { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.vc-verdict { font: 650 11px/1 var(--sans); letter-spacing: 0.06em; }
+.vc-verdict.direct { color: var(--flow-direct); }
+.vc-verdict.store  { color: var(--flow-store); }
+.vc-copy { margin-top: 5px; font: 400 12px/1.4 var(--sans); color: var(--text-faint); }
+.vc-dest { margin-top: 4px; font: 500 12px/1.3 var(--sans); color: var(--text-dim); }
+
+.summary-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.schip {
+  font: 650 12px/1 var(--sans); letter-spacing: 0.02em;
+  color: var(--text-dim); font-variant-numeric: tabular-nums;
+  border: 1px solid var(--border); border-radius: var(--radius-chip); padding: 6px 10px;
+}
+
+.stage-controls {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-top: 12px;
+}
+.stage-controls .muted { flex: 1 1 auto; margin: 0; color: var(--text-faint); font: 400 13px/1.4 var(--sans); }
+
+.btn-primary {
+  appearance: none; border: 0; border-radius: var(--radius-s);
+  background: var(--hot); color: var(--hot-ink);
+  font: 650 13px/1 var(--sans); padding: 10px 16px; cursor: pointer;
   transition: transform 0.12s var(--ease), background 0.15s var(--ease);
 }
-.approve:hover:not(:disabled) { background: var(--hot-2); }
-.approve:active:not(:disabled) { transform: translateY(1px); }
-.approve:disabled { opacity: 0.5; cursor: default; }
+.btn-primary:hover { background: var(--hot-2); }
+.btn-primary:active { transform: translateY(1px); }
 
-/* outcomes */
-.attempts { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.attempts li {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  font: 400 13px var(--sans);
-  padding: 6px 8px;
-  border-radius: var(--radius-s);
-  background: var(--surface-1);
-  border: 1px solid var(--border);
+.btn-quiet {
+  appearance: none; background: transparent; cursor: pointer;
+  border: 1px solid var(--border-2); border-radius: var(--radius-s);
+  color: var(--text-dim); font: 600 13px/1 var(--sans); padding: 10px 14px;
+  transition: color 0.15s var(--ease), border-color 0.15s var(--ease);
 }
-.attempts .who { font-weight: 600; color: var(--text); }
-.attempts .about { color: var(--text-faint); }
-.attempts .why { color: var(--text-dim); font-style: italic; }
-
-/* donor callback — opaque surface, hairline border, one accent left rule (§H.2) */
-.donor-msg {
-  margin-top: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-left: 2px solid var(--hot);
-  background: var(--surface-1);
-  border-radius: 0 var(--radius-s) var(--radius-s) 0;
-}
-.donor-msg .lbl {
-  font: 650 10px var(--sans); letter-spacing: 0.08em; text-transform: uppercase;
-  color: var(--hot);
-}
-.donor-msg p { margin: 4px 0 0; font: 400 13px/1.45 var(--sans); color: var(--text); }
+.btn-quiet:hover { color: var(--text); border-color: var(--text-faint); }
 
 .stage-err {
   position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+  pointer-events: auto;
   background: var(--panel); border: 1px solid var(--border-2); border-left: 3px solid var(--bad-mute);
   color: var(--bad-mute); border-radius: var(--radius-s);
-  padding: 7px 12px; font: 500 12px var(--mono);
+  padding: 7px 12px; font: 500 12px var(--mono); z-index: 5;
+}
+
+@media (max-width: 900px) {
+  .stage-panel { position: static; width: auto; max-height: none; margin: 8px; }
+  .stage { overflow: auto; }
 }

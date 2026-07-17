@@ -22,9 +22,9 @@ export default function App(): React.JSX.Element {
 
 function Shell() {
   const { mode, reset, busy, toast, detailOpen, appliedPatchCount } = useDonna();
-  // Opens on the Demo view: on demo night the first thing anyone should see is
-  // the narrative, not the console.
-  const [view, setView] = useState<View>('demo');
+  // Boots into the Dispatch console (§I.1): the inbound/outbound ops view is the
+  // default face of the product; the Demo tab is opt-in.
+  const [view, setView] = useState<View>('dispatch');
   const [intakeOpen, setIntakeOpen] = useState(false);
   const [mgrOpen, setMgrOpen] = useState(false);
 

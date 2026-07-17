@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { useDonna } from '../state';
 import type { Donation, DonationItem } from '../types';
 import { humanize, spoilCountdown } from '../theme';
-import { ChannelIcon, Snowflake } from '../icons';
+import { ChannelIcon, Snowflake, Route } from '../icons';
 
 // §G.1 — Inbound is ITEM-CENTRIC: donations flattened to items, newest donation
 // first. Each card ≤2 lines with an UNMISSABLE procurement state (§H.2: a colored
@@ -89,7 +89,7 @@ function ItemCard({ d, it, recipientName, selected, onOpen }: {
   // micro-label at line end (§H.2), the 3px left rule is the only color element.
   let line2: React.ReactNode;
   if (state === 'placed') {
-    line2 = <span className="l2-text ic-placed">→ {recipientName || 'placed'}</span>;
+    line2 = <span className="l2-text ic-placed"><Route size={12} className="rt-glyph" /> → {recipientName || 'placed'}</span>;
   } else if (state === 'unplaceable') {
     line2 = <span className="l2-text ic-dead">no takers — donor notified</span>;
   } else {

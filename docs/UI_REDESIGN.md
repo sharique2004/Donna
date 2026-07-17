@@ -298,3 +298,147 @@ tsc + vite build green; non-ASCII/emoji regex audit of frontend/src returns
 clean (map attribution glyphs and CSS arrows like → ← ✕ in text are allowed
 ONLY for →, ←, ✕, ⌀ typographic marks — no pictographic emoji); all three
 tabs render.
+
+## I. v1.5 — Map-first Demo stage + routing narrative (user feedback)
+
+User verdict: the map must be the face of the product on BOTH tabs. Tab 1
+(Dispatch) is the inbound/outbound console and becomes the DEFAULT view. Tab 2
+(Demo) currently hides the map behind an opaque card grid — that is wrong. The
+demo must play out ON the map: the inbound supplier call transcript forms, a
+routing decision is made and *seen* (direct-to-pantry vs stored-into-inventory),
+the outbound call transcript forms, the origin and destination light up with a
+route, and the supplier gets a drafted callback message. §B–§H rules (one
+accent, ≤2-line rows, humanize() everywhere, zero emojis, flat opaque surfaces,
+no backdrop-blur) all still bind.
+
+### I.0 Hard constraints (from the codebase — verified 2026-07-16)
+- Backend is UNTOUCHED in this pass. No depot/inventory concept exists there
+  (only `ENV.foodBankName`, a display string); `distanceMiles` is
+  pickup→recipient only. The direct-vs-store narrative is presentation-layer
+  ONLY, derived deterministically client-side. Say so in code comments.
+- `/api/live` is populated only by VAPI webhooks — ALWAYS empty in sim mode.
+  Sim dispatch is synchronous and instant (zero built-in delays). All demo
+  pacing is client-owned: dispatch first, then REPLAY the returned attempts.
+- `pickupLat/pickupLng` are optional — every map feature must no-op gracefully
+  when they are absent.
+- Items stay `pending` after a decline; `dialing` is a transient object; there
+  is no `declined` item status. `awaiting_triage` occurs only for real inbound
+  VAPI calls — the canned path lands at `scored`.
+- No new npm dependencies; no CDN/runtime-network assets. Frontend files only
+  (`frontend/src/**`, `frontend/index.html`).
+
+### I.1 Global
+- **Default view = `dispatch`** (App.tsx currently boots into `demo`). Header
+  segmented control stays `Dispatch | Demo`.
+- **Display face:** bundle Space Grotesk (variable or 500/700 woff2, OFL
+  license file alongside) under `frontend/src/assets/fonts/`, `@font-face` in
+  styles.css, exposed as `--display`. Used ONLY for: wordmark, panel titles,
+  seg control, stat numbers, stage phase labels. Body copy stays `--sans`.
+  Font stack must fall back to the current system stack so a missing asset
+  degrades silently.
+- **New tokens** in `:root`: `--flow-direct` (= `--hot`), `--flow-store`
+  `#4fb3a9`, `--route-dim rgba(231,233,236,0.22)`. No other token churn.
+- **Map vignette:** one non-interactive overlay div inside `.map-hero`
+  (`pointer-events:none`, radial-gradient, edges max ~35% black) so floating
+  panels read against tiles. NOT backdrop-blur (§H ban stands).
+- **Food bank home base:** `theme.ts` exports
+  `FOOD_BANK = { name: 'SF-Marin Food Bank', lat: 37.7541, lng: -122.3924 }`
+  (display-only; comment that the backend has no depot). Rendered on both tabs
+  as a small diamond marker with a quiet label.
+- **Routing verdict util** in `theme.ts`:
+  `routeVia(hoursToSpoil: number): 'direct' | 'store'` →
+  `hoursToSpoil >= 168 ? 'store' : 'direct'` (7-day threshold), plus
+  `verdictCopy()` returning the one-line reason, e.g. direct: "spoils in 48h —
+  routed straight from the supplier"; store: "shelf-stable — taken into
+  inventory, allocated from the warehouse". Canned scenario verdicts:
+  strawberries 48h → direct, bread 24h → direct, beans 2160h → store.
+
+### I.2 Demo bus (new `frontend/src/demoBus.ts`)
+A tiny module-scope store with subscribe/get/set + a `useDemoBus()` hook via
+`useSyncExternalStore`. Shape:
+`{ active: boolean, pickup?: {lat,lng,label}, routes: Route[], focusRecipientIds: string[], failedAtPickup?: boolean }`
+where `Route = { id, kind: 'direct'|'store-leg1'|'store-leg2', from: [number,number], to: [number,number] }`.
+DemoStage writes it; MapView reads it. Neither imports the other — the stage
+stays crash-isolated from the console (preserve the existing doc comment's
+intent in DemoStage.tsx).
+
+### I.3 MapView additions
+- `<DemoLayer/>` rendered inside `MapContainer`: subscribes to the bus;
+  renders the food-bank diamond (always), route arcs, and endpoint pulses;
+  when `active`, recipient pins not in `focusRecipientIds` drop to ~25%
+  fillOpacity; FitBounds yields to the bus (fit to route endpoints + food
+  bank while routes exist).
+- **Arcs:** quadratic bezier (control point offset perpendicular ~15% of the
+  chord), 64 samples, react-leaflet `Polyline`. Draw-in ≈900ms by slicing the
+  sampled points on rAF (do not fight leaflet's SVG internals with CSS).
+  `direct` = solid `--flow-direct`, weight 3; `store-leg1` solid and
+  `store-leg2` dashed in `--flow-store`. A failed item = pulsing muted-red
+  ring at the pickup pin, no route.
+- **Dispatch tab routes**, same Arc component, from `useDonna` state directly:
+  matched item selected → its full route (via warehouse when
+  `routeVia(item) === 'store'`: pickup→FOOD_BANK, FOOD_BANK→recipient);
+  pending item + a selected recipient → thin dashed preview pickup→recipient
+  in `--route-dim`.
+- Legend gains two route swatches (direct / via warehouse). Keep the ramp.
+
+### I.4 Demo tab — choreographed stage over the visible map
+`.stage` becomes a transparent, `pointer-events:none` layer (map pans
+underneath); panels are opaque floating surfaces (`--panel`, hairline border,
+radius 8, `--shadow`, `pointer-events:auto`) that enter with a 160ms
+translate+fade. Kill the `.stage-grid` nth-child hack entirely.
+
+Layout: left 340px panel **"Inbound — supplier line"** (caller identity +
+typewriter transcript); right 340px panel **"Outbound — Donna calling"**
+(callee identity + typewriter transcript; swaps per call; finally swaps to the
+Draft message card); bottom-center strip (≤720px) holding item cards with
+verdict micro-labels (`DIRECT` in `--flow-direct` / `STORE` in `--flow-store` +
+one verdictCopy line) and the stage controls.
+
+**Choreographer** — a client state machine
+`idle → inbound → parsed → gate → calling(i) → callback → done`:
+1. *idle*: map + food bank marker, one muted line, primary **"Run demo"**
+   (calls `api.canned()`).
+2. *inbound*: left panel types out `parseRaw(rawText)` at ~550ms/line; pickup
+   pin drops via the bus. A quiet "Skip" control fast-forwards any phase.
+3. *parsed*: item cards stagger in (~250ms apart) with verdict labels.
+4. *gate*: the human gate (PRD §10): **"Approve & dispatch"** primary button.
+   On click call `api.dispatch(id)` — it returns the fully-resolved donation;
+   do NOT render outcomes yet.
+5. *calling(i)*: replay attempts item-by-item: right panel shows the recipient
+   name, types the attempt transcript at ~500ms/line, lands the outcome
+   micro-label; on accept the bus draws the route (direct: pickup→recipient;
+   store: pickup→FB, then FB→recipient chained ~300ms later). Declines move to
+   the next attempt. Bread (canned): no route, `failedAtPickup` pulse,
+   `NO TAKERS` label.
+6. *callback*: right panel swaps to the **Draft message card** — compose-style:
+   "To {donorName} · {org if parseable}", "via text · {sourceContact}" (the
+   canned channel is voice/SMS — label honestly per channel, email framing
+   only when channel is email), body = `donorMessage` typed fast (~30ms/word),
+   then a quiet "Ready to send — Delivered" state line.
+7. *done*: summary chips in the strip (`2 placed · 1 unplaceable · 5,200 lbs
+   moved`), routes persist. "Reset" runs `api.reset()` and returns to idle.
+
+**Live-mode compatibility:** keep the 1s self-contained poll. If `/api/live`
+has lines (real VAPI), stream them into the phase-appropriate panel instead of
+replay pacing; donations at `awaiting_triage` surface the gate wired to
+`api.approve` + polling (existing behavior). A `donorMessage` beginning
+"Dispatch failed" renders as a plain error line, never in the compose card.
+
+### I.5 Dispatch tab polish (no structural change)
+Display face on titles/wordmark/seg; panel-enter transitions; hover polish;
+Feed cards for `matched` items gain a small route glyph + "→ {recipient}"
+(already §G); map routes per I.3. Everything else — §G layout, Detail
+internals, polling, endpoints — unchanged.
+
+### I.6 Webflow comp (design source of record)
+On the Webflow site "Donna" (6a59a21adef5d659dbfb5802): a "Design v1.5" page
+set — tokens board (colors/type/radii), an Operations screen comp, and a
+4-beat Demo storyboard — built with Webflow styles mirroring the tokens above.
+Static comp only; publish only with explicit user approval.
+
+### I.7 Verification
+`npx tsc --noEmit` + `vite build` green in frontend/; `git diff` clean outside
+`frontend/` and `docs/`; §H.4 non-ASCII audit still clean; canned run through
+the UI end-to-end (inbound → verdicts → gate → replayed calls → routes →
+draft card) with screenshots of both tabs; full demo replay ≤90s with Skip
+available at every phase.
