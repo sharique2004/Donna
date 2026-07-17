@@ -614,9 +614,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 
 .stage-panel {
   position: absolute;
-  top: 56px;
+  /* Clears the pipeline rail (§L.1): rail top 64px + ~72px of rail. The panels
+     and the rail both float over the map, so this offset is the only thing
+     keeping them from overlapping — keep them in sync. */
+  top: 148px;
   width: 340px;
-  max-height: calc(100vh - 76px - 200px);
+  max-height: calc(100vh - 168px - 200px);
   display: flex;
   flex-direction: column;
   pointer-events: auto;
@@ -677,6 +680,182 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 }
 .draft-state { margin-top: 8px; font: 650 10px/1 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--good-mute); }
 .draft-err { margin: 4px 0 0; font: 500 13px/1.45 var(--sans); color: var(--bad-mute); }
+
+/* ---- top pipeline rail (§L.1) --------------------------------------------
+   THE ONE SANCTIONED EXCEPTION to the §H no-glass/no-glow rule at the top of
+   this file. Scoped to `.prail` and nothing else: the rail floats over a live,
+   panning map, and a blurred surface is what tells the eye it is ABOVE the
+   tiles rather than drawn on them. An opaque panel here reads as a hole cut in
+   the map. Everything else in the skin stays opaque.
+
+   backdrop-filter is progressive: without support the rgba background alone
+   still clears the tiles, just without the blur. No layout depends on it.
+   -------------------------------------------------------------------------- */
+.prail {
+  position: absolute;
+  top: 64px;
+  left: 0; right: 0;
+  margin-inline: auto;
+  width: fit-content;
+  max-width: calc(100% - 32px);
+  pointer-events: auto;
+  animation: stage-in 160ms var(--ease) both;
+  /* .act lifts 3px and casts a shadow — without the padding the scroll box
+     clips both. */
+  overflow-x: auto;
+  padding: 6px 2px 10px;
+}
+.prail-in { width: max-content; }
+
+.prail-track {
+  position: relative;
+  height: 2px;
+  margin: 0 2px 8px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.prail-fill {
+  position: absolute;
+  inset: 0 100% 0 0;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--flow-store), var(--hot));
+  transition: right 900ms var(--ease);
+}
+/* the bead riding the leading edge */
+.prail-fill::after {
+  content: "";
+  position: absolute;
+  right: 0; top: -3px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--hot);
+  box-shadow: 0 0 12px 3px rgba(255, 106, 61, 0.5);
+}
+
+.prail-row { display: flex; align-items: stretch; gap: 14px; }
+
+.pnode {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 116px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  /* A near-black base UNDER the blur, not a white film over it. Glass alone
+     (rgba white + blur) let map roads read straight through the labels — the
+     blur softens the tiles but does nothing to their contrast. The base darkens
+     them; the blur still smears them, so the surface reads as glass and the
+     text stays legible while the map pans underneath. */
+  background: rgba(16, 18, 21, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  opacity: 0.62;
+  transition: opacity 500ms var(--ease), transform 500ms var(--ease),
+              background 500ms var(--ease), border-color 500ms var(--ease),
+              box-shadow 500ms var(--ease);
+}
+/* specular edge — the single highlight that sells the glass */
+.pnode::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9px;
+  pointer-events: none;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.14), transparent 42%);
+}
+/* hairline connector into the next capsule */
+.pnode::after {
+  content: "";
+  position: absolute;
+  top: 50%; right: -14px;
+  width: 14px; height: 1px;
+  background: var(--border-2);
+}
+.pnode:last-child::after { display: none; }
+
+.pnode .pn-k {
+  display: flex; align-items: center; gap: 6px;
+  font: 400 9px/1 var(--mono);
+  letter-spacing: 0.12em;
+  color: var(--text-faint);
+  margin-bottom: 6px;
+}
+.pnode .pn-l {
+  display: block;
+  font: 650 12.5px/1.35 var(--display);
+  letter-spacing: -0.1px;
+  color: var(--text-dim);
+}
+
+/* Done must be legible as done AT A GLANCE — the rail's whole job is answering
+   "where are we". A 5% green wash over a dark map was invisible next to an
+   untouched capsule, so done carries THREE cues, not one: the green tint, a
+   green rule down the leading edge, and a check glyph. Colour alone would also
+   fail anyone with deuteranopia; the glyph is the redundant channel. */
+.pnode.done {
+  opacity: 0.85;
+  background:
+    linear-gradient(rgba(111, 174, 143, 0.11), rgba(111, 174, 143, 0.11)),
+    rgba(16, 18, 21, 0.62);
+  border-color: rgba(111, 174, 143, 0.3);
+  border-left: 2px solid var(--good-mute);
+  padding-left: 11px;   /* hold the label still against the 2px border */
+}
+.pnode.done .pn-k { color: var(--good-mute); }
+.pnode.done .pn-l { color: var(--text); }
+.pn-check { margin-left: auto; color: var(--good-mute); font-size: 10px; line-height: 1; }
+
+.pnode.act {
+  opacity: 1;
+  transform: translateY(-3px);
+  background:
+    linear-gradient(150deg, rgba(255, 106, 61, 0.24), rgba(255, 255, 255, 0.05)),
+    rgba(16, 18, 21, 0.7);
+  border-color: rgba(255, 106, 61, 0.55);
+  box-shadow: 0 8px 28px rgba(255, 106, 61, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+.pnode.act .pn-k { color: var(--hot); }
+.pnode.act .pn-l { color: #fff; }
+
+/* ---- "Live call" — ONLY on the two stages with a human on a phone ---- */
+.pn-live {
+  display: flex; align-items: center; gap: 5px;
+  margin-top: 5px;
+  font: 650 9px/1 var(--sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--good-mute);
+}
+.pn-live i {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--good-mute);
+  box-shadow: 0 0 0 0 rgba(111, 174, 143, 0.5);
+  animation: live-pulse 1.8s var(--ease) infinite;
+}
+@keyframes live-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(111, 174, 143, 0.45); }
+  70%  { box-shadow: 0 0 0 6px rgba(111, 174, 143, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(111, 174, 143, 0); }
+}
+
+/* ---- the intelligence ring — the machine is working, nothing to show yet ---- */
+.pn-ring {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 106, 61, 0.25);
+  border-top-color: var(--hot);
+  animation: pn-spin 700ms linear infinite;
+}
+@keyframes pn-spin { to { transform: rotate(360deg); } }
+
+/* Motion here is decorative — the .act state already encodes progress without
+   it, so honouring the OS preference costs no information. */
+@media (prefers-reduced-motion: reduce) {
+  .pn-ring { animation: none; border-top-color: rgba(255, 106, 61, 0.25); opacity: 0.6; }
+  .pn-live i { animation: none; }
+  .prail-fill { transition: none; }
+}
 
 /* ---- bottom-center strip: item verdict cards + controls ---- */
 .stage-strip {
@@ -767,4 +946,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 @media (max-width: 900px) {
   .stage-panel { position: static; width: auto; max-height: none; margin: 8px; }
   .stage { overflow: auto; }
+  /* Panels go static here, so the rail must too — an absolute rail would float
+     over the first panel instead of above it. It keeps its own h-scroll. */
+  .prail { position: static; margin: 8px; max-width: calc(100% - 16px); }
 }

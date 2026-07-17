@@ -33,7 +33,18 @@ import { ChannelIcon, Phone, Mail, MessageSquare } from '../icons';
  * surface with MapView; neither module imports the other.
  */
 
-type Phase = 'idle' | 'inbound' | 'parsed' | 'gate' | 'calling' | 'callback' | 'done';
+/**
+ * §L.1 — the pipeline rail splits what the choreographer used to play as one
+ * 'inbound' beat into three (call → transcribing → intelligence), because the
+ * rail has to SHOW the machine thinking; a stage that never renders is a stage
+ * a judge doesn't know happened. These are display-only beats: no api call, no
+ * demo-bus write, nothing downstream reads them. The LIVE driver has no
+ * equivalent — a real call gives us captions, not a transcription phase — so it
+ * maps its own server statuses onto the same rail (railIndexLive).
+ */
+type Phase =
+  | 'idle' | 'inbound' | 'transcribing' | 'intelligence'
+  | 'parsed' | 'gate' | 'calling' | 'callback' | 'done';
 type Line = { speaker: string; text: string };
 const FB: [number, number] = [FOOD_BANK.lat, FOOD_BANK.lng];
 
@@ -175,7 +186,16 @@ export function DemoStage(): React.JSX.Element {
     for (let i = 1; i <= lines.length; i++) {
       setInboundN(i); await sleep(550); if (runIdRef.current !== rid) return;
     }
-    skipRef.current = false; // phase boundary — a Skip in 'inbound' must not bleed into 'parsed'
+    // §L.1 display-only beats. Each is its own Skip unit (a phase boundary
+    // resets the flag), so Skip during the ring doesn't blow past the read-out.
+    skipRef.current = false;
+    setPhase('transcribing');
+    await sleep(900); if (runIdRef.current !== rid) return;
+    skipRef.current = false;
+    setPhase('intelligence');
+    await sleep(1500); if (runIdRef.current !== rid) return;
+
+    skipRef.current = false; // phase boundary — a Skip in 'intelligence' must not bleed into 'parsed'
     setPhase('parsed');
     for (let i = 1; i <= d.items.length; i++) {
       setItemsN(i); await sleep(250); if (runIdRef.current !== rid) return;
@@ -404,11 +424,16 @@ export function DemoStage(): React.JSX.Element {
   const items = donation?.items ?? [];
   const inboundLines = parseRaw(enriched?.donation.rawText).slice(0, inboundN);
   const showInbound = phase !== 'idle' && donation != null;
-  const visibleItems = phase === 'inbound' ? 0 : phase === 'parsed' ? itemsN : items.length;
-  const animating = phase === 'inbound' || phase === 'parsed' || phase === 'calling' || phase === 'callback';
+  // Items stay hidden until the intelligence beat lands — showing a parsed item
+  // while the rail still says "Transcribing" would give away the ending (§I.4).
+  const preParse = phase === 'inbound' || phase === 'transcribing' || phase === 'intelligence';
+  const visibleItems = preParse ? 0 : phase === 'parsed' ? itemsN : items.length;
+  const animating = preParse || phase === 'parsed' || phase === 'calling' || phase === 'callback';
 
   return (
     <div className="stage">
+      {phase !== 'idle' && <PipelineRail index={railIndex(phase)} />}
+
       {showInbound && donation && (
         <InboundPanel donation={donation} lines={inboundLines} />
       )}
@@ -483,6 +508,8 @@ export function DemoStage(): React.JSX.Element {
 function phaseLabel(p: Phase): string {
   switch (p) {
     case 'inbound': return 'Inbound call';
+    case 'transcribing': return 'Transcribing';
+    case 'intelligence': return 'Running intelligence';
     case 'parsed': return 'Routing verdict';
     case 'gate': return 'Human gate';
     case 'calling': return 'Calling recipients';
@@ -490,6 +517,71 @@ function phaseLabel(p: Phase): string {
     case 'done': return 'Dispatch complete';
     default: return '';
   }
+}
+
+/* ------------------------------------------------------------ pipeline rail */
+
+/**
+ * §L.1 — the pipeline rail: seven glass capsules across the top of the stage,
+ * threaded by a progress track with a lit bead at the front edge.
+ *
+ * This is the one place in the v1.4 skin that uses glass and glow (styles.css:5
+ * forbids both everywhere else). That is deliberate and scoped: the rail floats
+ * OVER the live map, so a blurred surface reads as altitude in a way an opaque
+ * panel can't, and the exception stops at `.prail`.
+ *
+ * `live` marks the two stages where a human is actually on a phone — the only
+ * places a green dot may appear. `spin` marks the one stage where the machine is
+ * working with nothing to show; it gets the ring.
+ */
+const RAIL: { key: string; n: string; label: string; live?: true; spin?: true }[] = [
+  { key: 'inbound',      n: '01', label: 'Inbound call',    live: true },
+  { key: 'transcribing', n: '02', label: 'Transcribing' },
+  { key: 'intelligence', n: '03', label: 'Intelligence',    spin: true },
+  { key: 'parsed',       n: '04', label: 'What they offer' },
+  { key: 'gate',         n: '05', label: 'Your call' },
+  { key: 'calling',      n: '06', label: 'Outbound call',   live: true },
+  { key: 'callback',     n: '07', label: 'Call donor back' },
+];
+
+/** Rail position for the canned choreographer. -1 = idle, 7 = every stage done. */
+function railIndex(p: Phase): number {
+  if (p === 'idle') return -1;
+  if (p === 'done') return RAIL.length;
+  return RAIL.findIndex((r) => r.key === p);
+}
+
+function PipelineRail({ index }: { index: number }) {
+  // The bead sits at the leading edge of the ACTIVE capsule, so a completed run
+  // (index === RAIL.length) fills the track outright.
+  const pct = Math.max(0, Math.min(1, (index + 1) / RAIL.length)) * 100;
+  return (
+    <div className="prail" role="group" aria-label="Dispatch pipeline">
+      {/* prail-in is width:max-content so the track and the capsules share ONE
+          scroll width — the track must span the capsules, not the viewport. */}
+      <div className="prail-in">
+      <div className="prail-track"><div className="prail-fill" style={{ right: `${100 - pct}%` }} /></div>
+      <div className="prail-row">
+        {RAIL.map((r, i) => {
+          const state = i < index ? 'done' : i === index ? 'act' : 'idle';
+          return (
+            <div key={r.key} className={`pnode ${state}`} aria-current={state === 'act' ? 'step' : undefined}>
+              <span className="pn-k">
+                {r.n}
+                {state === 'act' && r.spin && <span className="pn-ring" aria-hidden="true" />}
+                {state === 'done' && <span className="pn-check" aria-hidden="true">✓</span>}
+              </span>
+              <span className="pn-l">{r.label}</span>
+              {state === 'act' && r.live && (
+                <span className="pn-live"><i aria-hidden="true" />Live call</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      </div>
+    </div>
+  );
 }
 
 /** Accepted → placed at recipient; otherwise no takers. */
@@ -804,8 +896,19 @@ function LiveStage({
         : phase === 'done' ? 'Dispatch complete'
           : 'Calling recipients';
 
+  // §L.1 — the rail on the live path. A real call has no transcription or
+  // intelligence beat to observe (the work happens server-side between hangup
+  // and awaiting_triage), so those capsules are simply already done by the time
+  // a donation exists. Never fake a spinner over work that has already finished.
+  const railIdx = phase === 'inbound' ? 0
+    : phase === 'gate' ? 4
+      : phase === 'calling' ? 5
+        : RAIL.length;
+
   return (
     <div className="stage">
+      <PipelineRail index={railIdx} />
+
       <InboundPanel donation={inboundDon} lines={inboundLines} />
 
       {call && <OutboundCallPanel call={call} />}
