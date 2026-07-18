@@ -45,7 +45,7 @@ function Shell() {
         </div>
         <span className="win-banner" title="AI Supply Chain Hackathon — July 15–17 2026, San Francisco">
           <span className="wb-tag">First prize</span>
-          <span className="wb-text">AI Supply Chain Hackathon · Pebblebed × Capgemini</span>
+          <span className="wb-text">AI Supply Chain Hackathon 2026 · Pebblebed × Capgemini</span>
         </span>
         <div className="hspacer" />
         {/* Pitch sits at the right of the ribbon, immediately left of the mode
