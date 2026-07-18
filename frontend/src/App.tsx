@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import './styles.css';
 import { DonnaProvider, useDonna } from './state';
 import { Feed } from './components/Feed';
@@ -32,6 +32,16 @@ function Shell() {
   // The ↺ popover: 'menu' offers Clear screen (client-only) beside Reset demo;
   // only the destructive path goes through the extra 'confirm' step.
   const [resetMenu, setResetMenu] = useState<'closed' | 'menu' | 'confirm'>('closed');
+
+  // The deck's end-of-deck "See it in action" CTA posts up from its iframe.
+  // Same-origin only — the deck is served from our own public/.
+  useEffect(() => {
+    const h = (e: MessageEvent) => {
+      if (e.origin === window.location.origin && e.data?.type === 'donna:see-demo') setView('demo');
+    };
+    window.addEventListener('message', h);
+    return () => window.removeEventListener('message', h);
+  }, []);
 
   const live = !!mode && (mode.llm !== 'mock' || mode.db !== 'json' || mode.voice !== 'sim');
   const modeTip = mode ? `LLM ${mode.llm} · DB ${mode.db} · Voice ${mode.voice}` : 'connecting…';

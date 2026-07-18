@@ -10,8 +10,10 @@ import React from 'react';
  * would collide with the console's own global styles and key handling.
  *
  * An iframe gives it the isolated document it already assumes, so the deck
- * ships byte-for-byte unmodified and its arrow-key nav and resize-fit work
- * unchanged. Keyboard focus lands inside the frame on click.
+ * ships byte-for-byte unmodified and its scroll/arrow-key nav and resize-fit
+ * work unchanged. Keyboard focus lands inside the frame on click; wheel needs
+ * no focus. The deck's one message OUT is the end-of-deck "See it in action"
+ * CTA, which posts {type:'donna:see-demo'} to the shell (handled in App).
  */
 export function PitchStage(): React.JSX.Element {
   return (

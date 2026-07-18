@@ -39,6 +39,17 @@
   #stage { position: fixed; inset: 0; display: grid; place-items: center; }
   #scaler { width: 1280px; height: 720px; position: relative; transform-origin: center center; }
 
+  /* End-of-deck CTA — the deck's one interactive element. */
+  .cta {
+    appearance: none; cursor: pointer;
+    background: var(--amber); color: #fff8f3; border: 0; border-radius: 8px;
+    font: 650 17px/1 var(--body); letter-spacing: 0.01em;
+    padding: 15px 26px;
+    transition: background 0.15s ease, transform 0.12s ease;
+  }
+  .cta:hover { background: var(--amber-dim); }
+  .cta:active { transform: translateY(1px); }
+
   .slide {
     position: absolute; inset: 0;
     padding: 84px 96px 72px;
@@ -412,13 +423,14 @@
       <p class="eyebrow r" style="--d:0ms">Donna</p>
       <h2 class="r" style="--d:80ms">The food already exists. The clock is the only thing in the way.</h2>
       <p class="say r" style="--d:300ms; font-size:26px;">Donna takes the hours out of the phone tree — and remembers everything she learns on the way.</p>
+      <p class="r" style="--d:520ms; margin-top:34px;"><button class="cta" id="see-demo">See it in action</button></p>
     </section>
 
   </div>
 </div>
 
 <div id="counter">01 / 07</div>
-<div id="hint">← → to navigate</div>
+<div id="hint">Scroll to navigate</div>
 
 <script>
   const slides = Array.from(document.querySelectorAll('.slide'));
@@ -556,6 +568,45 @@
     if (e.key === 'End') show(slides.length - 1);
     if (e.key === 'f') document.documentElement.requestFullscreen?.();
     hint.style.opacity = '0';
+  });
+
+  /* ---- scroll navigation: one slide per wheel gesture ----
+     Trackpads stream dozens of small deltas plus a momentum tail, so a naive
+     per-event step would fly through the whole deck. Accumulate until a real
+     gesture's worth of delta, step ONE slide, then ignore the tail. */
+  let wheelAcc = 0, wheelLockUntil = 0;
+  window.addEventListener('wheel', e => {
+    e.preventDefault();
+    const now = performance.now();
+    if (now < wheelLockUntil) return;
+    wheelAcc += e.deltaY;
+    if (Math.abs(wheelAcc) > 70) {
+      show(i + (wheelAcc > 0 ? 1 : -1));
+      wheelAcc = 0;
+      wheelLockUntil = now + 700;
+      hint.style.opacity = '0';
+    }
+  }, { passive: false });
+
+  /* A vertical swipe is the same gesture on glass. */
+  let touchY = null;
+  window.addEventListener('touchstart', e => { touchY = e.touches[0].clientY; }, { passive: true });
+  window.addEventListener('touchend', e => {
+    if (touchY == null) return;
+    const dy = touchY - e.changedTouches[0].clientY;
+    if (Math.abs(dy) > 50) { show(i + (dy > 0 ? 1 : -1)); hint.style.opacity = '0'; }
+    touchY = null;
+  }, { passive: true });
+
+  /* ---- end-of-deck CTA: cross to the demo ---- */
+  document.getElementById('see-demo').addEventListener('click', () => {
+    if (window.parent !== window) {
+      // Embedded in the console: ask the shell to switch to the Demo tab.
+      window.parent.postMessage({ type: 'donna:see-demo' }, location.origin);
+    } else {
+      // Standalone deck (projectdonna-pitch.vercel.app): go to the console.
+      location.href = 'https://projectdonna.vercel.app';
+    }
   });
 
   fit();
