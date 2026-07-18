@@ -138,7 +138,6 @@ body {
    green: coral stays reserved for live state, and the win is Donna speaking,
    not an alert. Sheds its detail text, then itself, as the ribbon narrows. */
 .win-banner {
-  position: relative;   /* anchors the one-shot confetti halo */
   display: inline-flex; align-items: center; gap: 7px;
   border: 1px solid rgba(36,82,59,0.35); border-radius: var(--radius-chip);
   padding: 3px 9px 3px 3px;
@@ -178,14 +177,12 @@ body {
 }
 .mode-tag.live { color: var(--hot); border-color: rgba(228,87,46,0.4); }
 
-/* Celebration confetti — a small halo canvas around the win banner, NOT a page
-   overlay. z-index -1 inside the ribbon's stacking context paints it behind the
-   label and every other ribbon control but above the ribbon's background; the
-   component unmounts it once the last piece lands. */
-.confetti {
-  position: absolute; top: -12px; left: -60px; right: -60px; height: 120px;
-  z-index: -1; pointer-events: none;
-}
+/* Celebration confetti — full-viewport so the fall reaches the bottom of the
+   page, but layered BELOW the ribbon (z 16 < .hbar's 20): pieces spawned at the
+   banner's bottom edge emerge from UNDER it, and anything arcing up hides
+   behind the opaque bar. Above the pitch stage (15) and the map, catches
+   nothing, and the component unmounts it once the last piece exits. */
+.confetti { position: fixed; inset: 0; z-index: 16; pointer-events: none; }
 
 .icon-btn {
   appearance: none; border: 0; background: transparent; cursor: pointer; position: relative;

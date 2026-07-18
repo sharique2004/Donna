@@ -41,6 +41,11 @@ function Shell() {
       {/* full-bleed map hero under everything */}
       <MapView />
 
+      {/* One-shot celebration ~1.5s after load: pops from UNDER the win banner
+          (the canvas layers below the ribbon, so pieces emerge from beneath it)
+          and falls the full height of the page, then unmounts. */}
+      <WinConfetti />
+
       <header className="hbar">
         <span className="wordmark">Donna<span className="wm-dot">.</span></span>
         <div className="seg">
@@ -48,9 +53,6 @@ function Shell() {
           <button className={`seg-btn${view === 'demo' ? ' on' : ''}`} onClick={() => setView('demo')}>Demo</button>
         </div>
         <span className="win-banner" title="AI Supply Chain Hackathon — July 15–17 2026, San Francisco">
-          {/* One-shot celebration, popping from BEHIND this label only: the
-              canvas is a small halo around the banner, not a page overlay. */}
-          <WinConfetti />
           <span className="wb-tag">Winner</span>
           <span className="wb-text">AI Supply Chain Hackathon 2026 · Pebblebed × Capgemini</span>
         </span>
