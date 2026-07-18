@@ -604,8 +604,9 @@
       // Embedded in the console: ask the shell to switch to the Demo tab.
       window.parent.postMessage({ type: 'donna:see-demo' }, location.origin);
     } else {
-      // Standalone deck (projectdonna-pitch.vercel.app): go to the console.
-      location.href = 'https://projectdonna.vercel.app';
+      // Standalone deck (served at /pitch-deck.html): cross to the console's
+      // Demo tab on this same site — the root is the landing page now.
+      location.href = '/console?view=demo';
     }
   });
 

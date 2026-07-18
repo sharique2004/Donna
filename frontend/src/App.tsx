@@ -25,8 +25,13 @@ export default function App(): React.JSX.Element {
 function Shell() {
   const { mode, reset, busy, toast, detailOpen, appliedPatchCount, closeDetail, pushToast } = useDonna();
   // Boots into the Pitch deck: the deck opens the room, then we cross to the
-  // Dispatch console / Demo tab from the ribbon.
-  const [view, setView] = useState<View>('pitch');
+  // Dispatch console / Demo tab from the ribbon. The landing page deep-links
+  // straight onto a tab via /console?view=demo|dispatch|pitch (read once at
+  // boot — the ribbon owns the view from then on).
+  const [view, setView] = useState<View>(() => {
+    const v = new URLSearchParams(window.location.search).get('view');
+    return v === 'demo' || v === 'dispatch' || v === 'pitch' ? v : 'pitch';
+  });
   const [intakeOpen, setIntakeOpen] = useState(false);
   const [mgrOpen, setMgrOpen] = useState(false);
   // The ↺ popover: 'menu' offers Clear screen (client-only) beside Reset demo;
