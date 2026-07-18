@@ -18,7 +18,6 @@
     --green:  #24523b;
     --green-soft: rgba(36,82,59,0.1);
     --coral:  #e4572e;
-    --slate:  #5a6472;
     --good:   #3f8f6b;
     --bad:    #c25a5a;
     --serif: "Fraunces", Georgia, serif;
@@ -49,8 +48,20 @@
   .nav .links a::after { content: ""; position: absolute; left: 0; right: 100%; bottom: 0; height: 2px; background: var(--coral); border-radius: 2px; transition: right 350ms var(--ease-out); }
   .nav .links a:hover, .nav .links a.live { color: var(--ink); }
   .nav .links a.live::after { right: 0; }
-  .nav .cta-mini { font: 600 12.5px/1 var(--sans); color: #fff; background: var(--green); text-decoration: none; border-radius: 9px; padding: 10px 16px; transition: transform 200ms var(--spring), background 250ms; }
-  .nav .cta-mini:hover { transform: translateY(-1px); background: #2d6449; }
+  /* Console button voice (§H): solid buttons are CORAL — green stays Donna's
+     typographic voice, never a control. Hover shifts the coral, no lift. */
+  .nav .cta-mini { font: 600 12.5px/1 var(--sans); color: #fff; background: var(--coral); text-decoration: none; border-radius: 8px; padding: 10px 16px; transition: background 250ms; }
+  .nav .cta-mini:hover { background: #ef6a41; }
+
+  /* Hero CTA — same console idiom, hero-sized. */
+  .btn-console {
+    display: inline-flex; align-items: center; gap: 8px;
+    font: 650 14.5px/1 var(--sans); color: #fff; text-decoration: none;
+    background: var(--coral); border-radius: 8px; padding: 14px 22px;
+    transition: background 150ms ease, transform 120ms ease;
+  }
+  .btn-console:hover { background: #ef6a41; }
+  .btn-console:active { transform: translateY(1px); }
   @media (max-width: 820px) { .nav .links { display: none; } }
 
   /* ---------------- hero ---------------- */
@@ -80,7 +91,7 @@
   /* ---------------- call player ---------------- */
   .player { border: 1px solid var(--line-2); border-radius: 22px; background: var(--card); overflow: hidden;
     box-shadow: 0 2px 4px rgba(34,35,29,0.04), 0 30px 70px -40px rgba(34,35,29,0.4); }
-  .p-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 15px 20px; border-bottom: 1px solid var(--line); background: linear-gradient(180deg, #fbf8f1, var(--card)); flex-wrap: wrap; }
+  .p-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 15px 20px; border-bottom: 1px solid var(--line); background: linear-gradient(180deg, #f6f1e6, var(--card)); flex-wrap: wrap; }
   .p-head .idbox { display: flex; align-items: center; gap: 12px; font: 500 11px/1 var(--mono); letter-spacing: 0.1em; color: var(--ink-dim); }
   .p-live { display: inline-flex; align-items: center; gap: 7px; font: 700 9.5px/1 var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--coral); }
   .p-live i { width: 7px; height: 7px; border-radius: 50%; background: var(--coral); animation: blink 1.4s ease-in-out infinite; }
@@ -110,13 +121,15 @@
   .tx-line.in { opacity: 1; transform: none; }
   .tx-line .spk { font: 700 9.5px/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; display: block; margin-bottom: 4px; color: var(--ink-faint); }
   .tx-line.donna .spk { color: var(--green); }
-  .tx-line.pantry .spk { color: var(--slate); }
+  /* Console transcript idiom: the human side is warm ink-dim, not a blue-grey
+     the console palette doesn't have. */
+  .tx-line.pantry .spk { color: var(--ink-dim); }
   .tx-line .txt { font-family: var(--serif); font-size: 16.5px; line-height: 1.45; color: var(--ink-dim); }
   .tx-line.donna .txt { color: var(--ink); }
   .tx-line.sys { text-align: center; }
   .tx-line.sys .txt { font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); }
   .tx-line.sys .txt .g { color: var(--good); }
-  .rec { padding: 18px 20px; background: #fbf8f1; }
+  .rec { padding: 18px 20px; background: #f6f1e6; }
   .rec .rk { font: 700 9.5px/1 var(--mono); letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 6px; }
   .rrow { display: grid; grid-template-columns: 96px 1fr; gap: 12px; padding: 11px 4px; border-bottom: 1px solid var(--line); align-items: baseline; }
   .rrow:last-child { border-bottom: none; }
@@ -186,7 +199,7 @@
   .fair-card .fp { font-size: 15px; color: var(--ink-dim); max-width: 56ch; margin: 16px auto 0; }
   .fair-card .fp strong { color: var(--ink); font-weight: 600; }
   .signals { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin: 30px 0 0; }
-  .signal { position: relative; font: 600 12.5px/1 var(--sans); color: var(--ink); background: #fbf8f1; border: 1px solid var(--line-2); border-radius: 11px; padding: 13px 18px 17px; min-width: 118px;
+  .signal { position: relative; font: 600 12.5px/1 var(--sans); color: var(--ink); background: #f6f1e6; border: 1px solid var(--line-2); border-radius: 11px; padding: 13px 18px 17px; min-width: 118px;
     opacity: 0; transform: translateY(14px) scale(0.95); transition: opacity 600ms var(--ease-out), transform 600ms var(--spring); }
   .signal i { position: absolute; left: 12px; right: 12px; bottom: 8px; height: 3px; border-radius: 3px; background: var(--line); overflow: hidden; display: block; }
   .signal i::after { content: ""; position: absolute; inset: 0; right: 100%; background: var(--green); border-radius: 3px; transition: right 900ms var(--ease-out) 500ms; }
@@ -205,7 +218,7 @@
   .aud-card p strong { color: var(--ink); font-weight: 600; }
 
   /* ---------------- under the hood ---------------- */
-  .hood { background: #fbf8f1; border-block: 1px solid var(--line); margin-top: 92px; }
+  .hood { background: #f6f1e6; border-block: 1px solid var(--line); margin-top: 92px; }
   .hood .in { padding: 64px 0; }
   .hood-grid { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(26px, 5vw, 56px); margin-top: 36px; }
   .hood h3 { font: 700 11px/1 var(--mono); letter-spacing: 0.2em; text-transform: uppercase; color: var(--green); margin: 0 0 16px; }
@@ -240,7 +253,7 @@
   .btn.line:hover { border-color: #fff; }
 
   /* ---------------- footer ---------------- */
-  footer { border-top: 1px solid var(--line); background: #fbf8f1; }
+  footer { border-top: 1px solid var(--line); background: #f6f1e6; }
   footer .in { padding: 52px 0 46px; display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: clamp(24px, 5vw, 60px); }
   footer .fm { font-family: var(--serif); font-weight: 600; font-size: 26px; color: var(--ink); margin: 0; }
   footer .fm i { font-style: normal; color: var(--coral); }
@@ -276,12 +289,6 @@
       <a href="#listen">Listen in</a>
       <a href="#who">Who it's for</a>
       <a href="#hood">Under the hood</a>
-      <!-- The product itself — first-party pages, same tab. /console?view=…
-           deep-links the console straight onto a tab; the deck is the
-           scroll-navigated pitch-deck.html on this same domain. -->
-      <a href="/console?view=demo">Demo</a>
-      <a href="/console?view=dispatch">Dispatch</a>
-      <a href="/pitch-deck.html">Pitch</a>
     </div>
     <a class="cta-mini" href="#customize">Reach out</a>
   </div>
@@ -294,6 +301,12 @@
     <h1 class="hey spring" style="--d:140ms">Hey <span class="hand">👋</span> — I'm <em>Donna.</em></h1>
     <p class="tagline spring" style="--d:300ms">“Nobody wastes food on purpose. <span class="turn">They just run out of time.</span>”</p>
     <p class="sub spring" style="--d:440ms">I answer when a donor calls with surplus on the clock. I work out what it is and how long it has, rank every pantry that could take it, and start making calls — <strong>placed in minutes, not an afternoon of dialing</strong>.</p>
+    <!-- The one road into the product from here — replaces the old
+         Demo/Dispatch/Pitch nav links. Lands on the dispatch console; the
+         ribbon there reaches Demo and the deck. -->
+    <div class="spring" style="--d:500ms; margin-top:26px;">
+      <a class="btn-console" href="/console?view=dispatch">Skip to console →</a>
+    </div>
     <div class="serves spring" style="--d:560ms">
       <span class="chip">Food banks &amp; pantries</span>
       <span class="chip">Grocers &amp; restaurants</span>
@@ -450,9 +463,6 @@
     </div>
     <div class="col">
       <h5>Project</h5>
-      <a href="/console?view=demo">Try the demo</a>
-      <a href="/console?view=dispatch">Dispatch console</a>
-      <a href="/pitch-deck.html">Pitch deck</a>
       <a href="#customize">Customize it</a>
       <a href="mailto:in.vivekpatel@gmail.com">in.vivekpatel@gmail.com</a>
       <a href="mailto:vivekpatel@psu.edu">vivekpatel@psu.edu</a>
